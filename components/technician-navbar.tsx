@@ -1,31 +1,32 @@
 'use client';
 
-import Link from 'next/link';
-import { useRouter, usePathname } from 'next/navigation';
+import { useAuth } from '@/lib/auth/context';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Home, Wrench, LogOut, User, Calendar } from 'lucide-react';
-import { useAuth } from '@/lib/auth/context';
+import Link from 'next/link';
+import { LogOut, LayoutDashboard, User, Wrench } from 'lucide-react';
+import { useRouter, usePathname } from 'next/navigation';
 
-export function Navbar() {
-  const { user, loading, signOut } = useAuth();
+export function TechnicianNavbar() {
+  const { user, signOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
   const handleSignOut = async () => {
     await signOut();
-    router.push('/');
+    router.push('/technician/login');
   };
 
   const getInitials = (name: string | null | undefined) => {
-    if (!name) return 'U';
+    if (!name) return 'T';
     return name
       .split(' ')
       .map((n) => n[0])
@@ -38,59 +39,51 @@ export function Navbar() {
     <nav className="border-b bg-background">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         {/* Logo */}
-        <div className="flex items-center gap-2">
+        <Link href="/technician/dashboard" className="flex items-center gap-2">
           <Wrench className="h-6 w-6" />
-          <span className="text-xl font-bold">TaaS</span>
-        </div>
+          <span className="text-xl font-bold">TaaS Technician</span>
+        </Link>
 
         {/* Center Navigation Links */}
         <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-2">
-          <Link href="/">
-            <Button variant={pathname === '/' ? 'secondary' : 'ghost'} size="sm">
-              <Home className="mr-2 h-4 w-4" />
-              Home
+          <Link href="/technician/dashboard">
+            <Button variant={pathname === '/technician/dashboard' ? 'secondary' : 'ghost'} size="sm">
+              <LayoutDashboard className="mr-2 h-4 w-4" />
+              Dashboard
             </Button>
           </Link>
-          <Link href="/technicians">
-            <Button variant={pathname === '/technicians' ? 'secondary' : 'ghost'} size="sm">
-              <Wrench className="mr-2 h-4 w-4" />
-              Technicians
-            </Button>
-          </Link>
-          {user && (
-            <Link href="/account/bookings">
-              <Button variant={pathname?.startsWith('/account/bookings') ? 'secondary' : 'ghost'} size="sm">
-                <Calendar className="mr-2 h-4 w-4" />
-                Bookings
-              </Button>
-            </Link>
-          )}
         </div>
 
-        {/* Right Side - Auth */}
+        {/* Right Side - Technician User Info */}
         <div className="flex items-center gap-2">
-          {loading ? (
-            <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />
-          ) : user ? (
+          {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="flex items-center gap-2">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={user.photoURL || undefined} alt={user.displayName || 'User'} />
+                    <AvatarImage src={user.photoURL || undefined} alt={user.displayName || 'Technician'} />
                     <AvatarFallback>
                       {getInitials(user.displayName)}
                     </AvatarFallback>
                   </Avatar>
                   <span className="hidden sm:inline-block">
-                    {user.displayName || user.email?.split('@')[0] || 'User'}
+                    {user.displayName || user.email?.split('@')[0] || 'Technician'}
                   </span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuContent className="w-56" align="end">
                 <div className="px-2 py-1.5">
-                  <p className="text-sm font-medium">{user.displayName || 'User'}</p>
+                  <p className="text-sm font-medium">{user.displayName || 'Technician'}</p>
                   <p className="text-xs text-muted-foreground">{user.email}</p>
+                  <p className="text-xs text-primary font-medium mt-1">Technician</p>
                 </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/technician/profile">
+                    <User className="mr-2 h-4 w-4" />
+                    <span>Profile</span>
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSignOut}>
                   <LogOut className="mr-2 h-4 w-4" />
@@ -99,10 +92,8 @@ export function Navbar() {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Link href="/login">
-              <Button variant="ghost" size="sm">
-                Sign In
-              </Button>
+            <Link href="/technician/login">
+              <Button variant="ghost" size="sm">Sign In</Button>
             </Link>
           )}
         </div>

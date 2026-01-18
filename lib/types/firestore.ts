@@ -1,17 +1,20 @@
 import type { Timestamp } from 'firebase/firestore';
 
-export type UserRole = 'client';
+export type UserRole = 'client' | 'technician';
 
 export type User = {
   email: string;
   displayName: string;
   role: UserRole;
+  ratingAvg?: number;
+  ratingCount?: number;
   createdAt: Timestamp | Date;
 };
 
 export type JobType = 'plumber' | 'electrician' | 'carpenter' | 'maintenance' | 'hvac' | 'appliance_repair' | 'handyman' | 'carpentry';
 
 export type Technician = {
+  userId?: string; // Link to users collection (optional, set when technician signs up)
   name: string;
   jobTypes: JobType[];
   bio: string;
@@ -31,7 +34,7 @@ export type Technician = {
   updatedAt?: Timestamp | Date;
 };
 
-export type BookingStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled';
+export type BookingStatus = 'requested' | 'accepted' | 'rejected' | 'confirmed' | 'completed';
 
 export type Booking = {
   clientId: string;
@@ -41,6 +44,11 @@ export type Booking = {
   address: string;
   preferredDateTime: Timestamp | Date | string;
   status: BookingStatus;
+  negotiatedPrice?: number;
+  negotiatedDateTime?: Timestamp | Date | string;
+  acceptedAt?: Timestamp | Date;
+  completedByClient?: boolean;
+  completedByTechnician?: boolean;
   lead: {
     contacted: boolean;
     closed: boolean;
@@ -53,7 +61,21 @@ export type Review = {
   bookingId: string;
   clientId: string;
   technicianId: string;
+  reviewerId: string; // ID of the user giving the review
+  revieweeId: string; // ID of the user being reviewed
   stars: number; // 1-5
   text?: string;
   createdAt: Timestamp | Date;
+};
+
+export type ChatMessage = {
+  bookingId: string;
+  senderId: string; // clientId or technicianId
+  senderType: 'client' | 'technician';
+  message: string;
+  createdAt: Timestamp | Date;
+  offer?: {
+    price: number;
+    dateTime: Timestamp | Date | string;
+  };
 };

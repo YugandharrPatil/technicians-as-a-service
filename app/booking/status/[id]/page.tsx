@@ -1,13 +1,19 @@
 'use client';
 
-import { use } from 'react';
+import { use, useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth/context';
 import type { Booking } from '@/lib/types/firestore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, MapPin, User, Wrench } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Calendar, MapPin, User, Wrench, MessageSquare } from 'lucide-react';
 import Link from 'next/link';
 import { useBooking } from '@/lib/hooks/use-booking';
+import { doc, updateDoc, collection, query, where, getDocs, onSnapshot, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { ReviewDialog } from '@/components/review-dialog';
+import { toast } from 'sonner';
 
 export default function BookingStatusPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -16,18 +22,103 @@ export default function BookingStatusPage({ params }: { params: Promise<{ id: st
   const booking = data?.booking;
   const technician = data?.technician;
 
+  const [updating, setUpdating] = useState(false);
+  const [showReviewDialog, setShowReviewDialog] = useState(false);
+  const [hasReviewed, setHasReviewed] = useState(false);
+  const queryClient = useQueryClient();
+
+  // Real-time listener to detect when booking becomes completed
+  useEffect(() => {
+    if (!db || !id || !user || isLoading) return;
+
+    const bookingRef = doc(db, 'bookings', id);
+    const unsubscribe = onSnapshot(bookingRef, async (snapshot) => {
+      if (!snapshot.exists()) return;
+
+      const bookingData = { ...snapshot.data() as Booking, id: snapshot.id };
+      
+      // If booking just became completed, check for review
+      if (bookingData.status === 'completed' && bookingData.completedByClient && bookingData.completedByTechnician && db) {
+        // Wait for technician data to be loaded
+        let techUserId = technician?.userId;
+        if (!techUserId) {
+          // Reload technician if not available
+          const techRef = doc(db, 'technicians', bookingData.technicianId);
+          const techSnap = await getDoc(techRef);
+          if (!techSnap.exists()) return;
+          const techData = techSnap.data();
+          if (!techData?.userId) return;
+          techUserId = techData.userId;
+        }
+        
+        if (!techUserId) return;
+        
+        // Check if user has already reviewed
+        try {
+          const reviewQuery = query(
+            collection(db, 'reviews'),
+            where('bookingId', '==', id),
+            where('reviewerId', '==', user.uid),
+            where('revieweeId', '==', techUserId)
+          );
+          const reviewSnap = await getDocs(reviewQuery);
+          
+          if (reviewSnap.empty) {
+            // User hasn't reviewed yet, open dialog
+            setShowReviewDialog(true);
+          } else {
+            setHasReviewed(true);
+          }
+        } catch (error) {
+          console.error('Error checking review status:', error);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [id, user?.uid, technician, isLoading]);
+
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'pending':
+      case 'requested':
         return 'bg-yellow-100 text-yellow-800';
-      case 'confirmed':
+      case 'accepted':
         return 'bg-blue-100 text-blue-800';
-      case 'completed':
-        return 'bg-green-100 text-green-800';
-      case 'cancelled':
+      case 'rejected':
         return 'bg-red-100 text-red-800';
+      case 'confirmed':
+        return 'bg-green-100 text-green-800';
+      case 'completed':
+        return 'bg-gray-100 text-gray-800';
       default:
         return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const handleMarkCompleted = async () => {
+    if (!booking || !db) return;
+
+    setUpdating(true);
+    try {
+      const bookingRef = doc(db, 'bookings', id);
+      const updates: Record<string, unknown> = {
+        completedByClient: true,
+        updatedAt: new Date(),
+      };
+
+      // If technician also marked as completed, set status to completed
+      if (booking.completedByTechnician) {
+        updates.status = 'completed';
+      }
+
+      await updateDoc(bookingRef, updates);
+      queryClient.invalidateQueries({ queryKey: ['booking', id] });
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    } catch (error) {
+      console.error('Error marking booking as completed:', error);
+      toast.error('Failed to mark booking as completed. Please try again.');
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -111,15 +202,93 @@ export default function BookingStatusPage({ params }: { params: Promise<{ id: st
             <p>{preferredDate.toLocaleString()}</p>
           </div>
 
-          {booking.status === 'completed' && (
+          {booking.negotiatedPrice && (
+            <div>
+              <div className="mb-2 text-sm text-muted-foreground">
+                <span className="font-medium">Negotiated Price</span>
+              </div>
+              <p className="text-lg font-semibold">${booking.negotiatedPrice.toFixed(2)}</p>
+            </div>
+          )}
+
+          {booking.negotiatedDateTime && (
+            <div>
+              <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
+                <Calendar className="h-4 w-4" />
+                <span className="font-medium">Negotiated Date & Time</span>
+              </div>
+              <p>
+                {booking.negotiatedDateTime instanceof Date
+                  ? booking.negotiatedDateTime.toLocaleString()
+                  : typeof booking.negotiatedDateTime === 'string'
+                  ? new Date(booking.negotiatedDateTime).toLocaleString()
+                  : booking.negotiatedDateTime?.toDate?.()?.toLocaleString() || 'N/A'}
+              </p>
+            </div>
+          )}
+
+          {(booking.status === 'accepted' || booking.status === 'confirmed') && (
             <div className="pt-4">
-              <Link href={`/account/reviews?bookingId=${booking.id}`}>
-                <button className="text-primary underline">Leave a Review</button>
+              <Link href={`/chat/${booking.id}`}>
+                <Button className="w-full">
+                  <MessageSquare className="mr-2 h-4 w-4" />
+                  Open Chat
+                </Button>
               </Link>
+            </div>
+          )}
+
+          {(booking.status === 'confirmed' || booking.status === 'accepted') && !booking.completedByClient && (
+            <div className="pt-4">
+              <Button 
+                onClick={handleMarkCompleted}
+                disabled={updating}
+                variant="outline"
+                className="w-full"
+              >
+                Mark as Completed
+              </Button>
+              {booking.completedByTechnician && (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Technician has marked this booking as completed. Once you mark it as completed, the booking will be finalized.
+                </p>
+              )}
+            </div>
+          )}
+
+          {booking.status === 'completed' && (
+            <div className="rounded-lg bg-green-50 p-4">
+              <p className="font-semibold text-green-800">Booking Completed</p>
+              <p className="text-sm text-green-700">
+                Both you and the technician have marked this booking as completed.
+              </p>
+              {hasReviewed && (
+                <p className="mt-2 text-sm text-green-700">Thank you for your review!</p>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Review Dialog */}
+      {booking && technician && technician.userId && (
+        <ReviewDialog
+          open={showReviewDialog}
+          onOpenChange={(open) => {
+            setShowReviewDialog(open);
+            // Only mark as reviewed if dialog is closed after successful submission
+            // The dialog will call onOpenChange(false) after successful submission
+          }}
+          booking={booking}
+          reviewerId={user.uid}
+          revieweeId={technician.userId}
+          revieweeName={technician.name}
+          revieweeType="technician"
+          onReviewSubmitted={() => {
+            setHasReviewed(true);
+          }}
+        />
+      )}
     </div>
   );
 }

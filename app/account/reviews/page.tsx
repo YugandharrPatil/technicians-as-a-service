@@ -6,7 +6,7 @@ import { collection, query, where, getDocs, doc, getDoc, addDoc } from 'firebase
 import { db } from '@/lib/firebase/client';
 import { useAuth } from '@/lib/auth/context';
 import { AuthGate } from '@/components/auth/auth-gate';
-import type { Review, Booking, Technician } from '@/lib/types/firestore';
+import type { Review, Booking, Technician, User } from '@/lib/types/firestore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useForm } from 'react-hook-form';
@@ -44,9 +44,11 @@ function ReviewsContent() {
   const bookingId = searchParams.get('bookingId');
   const [booking, setBooking] = useState<(Booking & { id: string }) | null>(null);
   const [technician, setTechnician] = useState<(Technician & { id: string }) | null>(null);
+  const [client, setClient] = useState<(User & { id: string }) | null>(null);
   const [existingReview, setExistingReview] = useState<(Review & { id: string }) | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [isClientReview, setIsClientReview] = useState(true);
 
   const form = useForm<ReviewFormValues>({
     resolver: zodResolver(reviewSchema),
@@ -55,6 +57,20 @@ function ReviewsContent() {
       text: '',
     },
   });
+
+  async function checkIfTechnician(userId: string): Promise<boolean> {
+    if (!db) return false;
+    try {
+      const techQuery = query(
+        collection(db, 'technicians'),
+        where('userId', '==', userId)
+      );
+      const techSnapshot = await getDocs(techQuery);
+      return !techSnapshot.empty;
+    } catch {
+      return false;
+    }
+  }
 
   useEffect(() => {
     if (user && bookingId) {
@@ -79,24 +95,39 @@ function ReviewsContent() {
 
       const bookingData = { ...bookingSnap.data() as Booking, id: bookingSnap.id };
       
-      if (bookingData.clientId !== user.uid || bookingData.status !== 'completed') {
+      // Check if user is client or technician
+      const isClientUser = bookingData.clientId === user.uid;
+      const isTechnicianUser = await checkIfTechnician(user.uid);
+      
+      if ((!isClientUser && !isTechnicianUser) || bookingData.status !== 'completed') {
         setLoading(false);
         return;
       }
 
       setBooking(bookingData);
+      setIsClientReview(isClientUser);
 
-      // Load technician
-      const techRef = doc(db, 'technicians', bookingData.technicianId);
-      const techSnap = await getDoc(techRef);
-      if (techSnap.exists()) {
-        setTechnician({ ...techSnap.data() as Technician, id: techSnap.id });
+      if (isClientUser) {
+        // Load technician for client review
+        const techRef = doc(db, 'technicians', bookingData.technicianId);
+        const techSnap = await getDoc(techRef);
+        if (techSnap.exists()) {
+          setTechnician({ ...techSnap.data() as Technician, id: techSnap.id });
+        }
+      } else {
+        // Load client for technician review
+        const clientRef = doc(db, 'users', bookingData.clientId);
+        const clientSnap = await getDoc(clientRef);
+        if (clientSnap.exists()) {
+          setClient({ ...clientSnap.data() as User, id: clientSnap.id });
+        }
       }
 
-      // Check for existing review
+      // Check for existing review by this user
       const reviewQuery = query(
         collection(db, 'reviews'),
-        where('bookingId', '==', bookingId)
+        where('bookingId', '==', bookingId),
+        where('reviewerId', '==', user.uid)
       );
       const reviewSnap = await getDocs(reviewQuery);
       if (!reviewSnap.empty) {
@@ -134,28 +165,85 @@ function ReviewsContent() {
   }
 
   async function onSubmit(data: ReviewFormValues) {
-    if (!user || !booking || !technician) return;
+    if (!user || !booking) return;
 
     setSubmitting(true);
     try {
-      if (existingReview) {
-        // Update existing review (would need update API)
-        alert('Review already exists. Update functionality coming soon.');
-      } else {
-        if (!db) return;
+      if (!db) return;
+
+      // Determine if user is client or technician
+      const isClient = booking.clientId === user.uid;
+      let technicianData = technician;
+      
+      if (isClient) {
+        if (!technicianData) return;
+        
+        // Client reviewing technician
+        const reviewerId = user.uid;
+        const revieweeId = technicianData.userId || technicianData.id; // Use userId if available, fallback to technicianId
+        
+        if (existingReview && existingReview.reviewerId === reviewerId) {
+          // Update existing review (would need update API)
+          alert('Review already exists. Update functionality coming soon.');
+          return;
+        }
+
         await addDoc(collection(db, 'reviews'), {
           bookingId: booking.id,
-          clientId: user.uid,
-          technicianId: technician.id,
+          clientId: booking.clientId,
+          technicianId: technicianData.id,
+          reviewerId,
+          revieweeId,
           stars: data.stars,
           text: data.text || '',
           createdAt: new Date(),
         });
+      } else {
+        // Technician reviewing client
+        // Load technician document to get userId
+        const techQuery = query(
+          collection(db, 'technicians'),
+          where('userId', '==', user.uid)
+        );
+        const techSnapshot = await getDocs(techQuery);
+        
+        if (techSnapshot.empty) {
+          alert('Technician profile not found.');
+          return;
+        }
 
-        alert('Review submitted successfully!');
-        form.reset();
-        setExistingReview(null);
+        const techDoc = techSnapshot.docs[0];
+        const reviewerId = user.uid;
+        const revieweeId = booking.clientId;
+
+        // Check for existing review
+        const reviewQuery = query(
+          collection(db, 'reviews'),
+          where('bookingId', '==', booking.id),
+          where('reviewerId', '==', reviewerId)
+        );
+        const reviewSnap = await getDocs(reviewQuery);
+        
+        if (!reviewSnap.empty) {
+          alert('Review already exists. Update functionality coming soon.');
+          return;
+        }
+
+        await addDoc(collection(db, 'reviews'), {
+          bookingId: booking.id,
+          clientId: booking.clientId,
+          technicianId: techDoc.id,
+          reviewerId,
+          revieweeId,
+          stars: data.stars,
+          text: data.text || '',
+          createdAt: new Date(),
+        });
       }
+
+      alert('Review submitted successfully!');
+      form.reset();
+      setExistingReview(null);
     } catch (error) {
       console.error('Error submitting review:', error);
       alert('Failed to submit review. Please try again.');
@@ -168,7 +256,7 @@ function ReviewsContent() {
     return <div className="container mx-auto p-4">Loading...</div>;
   }
 
-  if (bookingId && (!booking || !technician)) {
+  if (bookingId && (!booking || (!technician && !client))) {
     return (
       <div className="container mx-auto p-4">
         <Card>
@@ -184,12 +272,16 @@ function ReviewsContent() {
     <div className="container mx-auto max-w-2xl p-4">
       <h1 className="mb-6 text-3xl font-bold">Reviews</h1>
 
-      {bookingId && booking && technician ? (
+      {bookingId && booking && (technician || client) ? (
         <Card>
           <CardHeader>
             <CardTitle>Leave a Review</CardTitle>
             <CardDescription>
-              Review your experience with {technician.name}
+              {isClientReview && technician
+                ? `Review your experience with ${technician.name}`
+                : client
+                ? `Review your experience with ${client.displayName || client.email}`
+                : 'Leave a review'}
             </CardDescription>
           </CardHeader>
           <CardContent>

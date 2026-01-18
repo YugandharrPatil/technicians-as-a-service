@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/context';
 
@@ -12,6 +12,12 @@ export function AuthGate({ children }: AuthGateProps) {
   const { user, loading } = useAuth();
   const router = useRouter();
 
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login');
+    }
+  }, [user, loading, router]);
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -21,7 +27,6 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   if (!user) {
-    router.push('/login');
     return null;
   }
 

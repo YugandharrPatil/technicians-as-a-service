@@ -4,6 +4,7 @@ import "./globals.css";
 import { AuthProvider } from "@/lib/auth/context";
 import { QueryProvider } from "@/lib/providers/query-provider";
 import { ConditionalNavbar } from "@/components/conditional-navbar";
+import { Toaster } from "@/components/ui/sonner";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -29,6 +30,7 @@ export default function RootLayout({
           <AuthProvider>
             <ConditionalNavbar />
             {children}
+            <Toaster />
           </AuthProvider>
         </QueryProvider>
       </body>

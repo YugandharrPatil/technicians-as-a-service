@@ -117,7 +117,7 @@ function CreateBookingContent() {
         problemDescription: data.problemDescription,
         address: data.address,
         preferredDateTime,
-        status: 'pending',
+        status: 'requested',
         lead: {
           contacted: false,
           closed: false,

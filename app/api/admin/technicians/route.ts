@@ -14,6 +14,7 @@ const technicianSchema = z.object({
   cities: z.array(z.string().min(1)),
   isVisible: z.boolean(),
   photoUrl: z.string().optional(),
+  userId: z.string().optional(), // Link to users collection (optional, set when technician signs up)
 });
 
 export async function POST(request: NextRequest) {
