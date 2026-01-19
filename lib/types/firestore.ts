@@ -5,7 +5,8 @@ export type UserRole = 'client' | 'technician';
 export type User = {
   email: string;
   displayName: string;
-  role: UserRole;
+  role: UserRole; // Current active role (for backward compatibility and current context)
+  roles?: UserRole[]; // All roles this user has (for multi-role support)
   ratingAvg?: number;
   ratingCount?: number;
   createdAt: Timestamp | Date;

@@ -14,6 +14,7 @@ import {
 import Link from 'next/link';
 import { LogOut, LayoutDashboard, User, Wrench } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 export function TechnicianNavbar() {
   const { user, signOut } = useAuth();
@@ -22,7 +23,7 @@ export function TechnicianNavbar() {
 
   const handleSignOut = async () => {
     await signOut();
-    router.push('/technician/login');
+    router.push('/');
   };
 
   const getInitials = (name: string | null | undefined) => {
@@ -96,6 +97,7 @@ export function TechnicianNavbar() {
               <Button variant="ghost" size="sm">Sign In</Button>
             </Link>
           )}
+          <ThemeToggle />
         </div>
       </div>
     </nav>

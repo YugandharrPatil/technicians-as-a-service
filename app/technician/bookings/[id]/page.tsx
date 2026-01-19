@@ -15,6 +15,14 @@ import { Calendar, MapPin, User as UserIcon, MessageSquare } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query';
 import { ReviewDialog } from '@/components/review-dialog';
 import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export default function TechnicianBookingDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -33,6 +41,7 @@ function TechnicianBookingDetailContent({ id }: { id: string }) {
   const [updating, setUpdating] = useState(false);
   const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [hasReviewed, setHasReviewed] = useState(false);
+  const [showCompletionDialog, setShowCompletionDialog] = useState(false);
   const queryClient = useQueryClient();
 
 
@@ -316,29 +325,43 @@ function TechnicianBookingDetailContent({ id }: { id: string }) {
             </div>
           )}
 
-          {(booking.status === 'confirmed' || booking.status === 'accepted') && !booking.completedByTechnician && (
+          {booking.status === 'confirmed' && booking.negotiatedPrice && booking.negotiatedDateTime && !booking.completedByTechnician && (
             <div className="pt-4">
               <Button 
-                onClick={handleMarkCompleted}
+                onClick={() => setShowCompletionDialog(true)}
                 disabled={updating}
                 variant="outline"
                 className="w-full"
               >
-                Mark as Completed
+                Mark Service as Completed
               </Button>
               {booking.completedByClient && (
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Client has marked this booking as completed. Once you mark it as completed, the booking will be finalized.
+                  Client has confirmed that the work is completed. Once you confirm as well, the service will be finalized.
                 </p>
               )}
+            </div>
+          )}
+          {(booking.status === 'accepted' || (booking.status === 'confirmed' && (!booking.negotiatedPrice || !booking.negotiatedDateTime))) && !booking.completedByTechnician && (
+            <div className="pt-4">
+              <Button 
+                disabled={true}
+                variant="outline"
+                className="w-full"
+              >
+                Mark Service as Completed
+              </Button>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Please wait for the client to send an offer and accept it before marking the service as completed.
+              </p>
             </div>
           )}
 
           {booking.status === 'completed' && (
             <div className="rounded-lg bg-green-50 p-4">
-              <p className="font-semibold text-green-800">Booking Completed</p>
+              <p className="font-semibold text-green-800">Service Completed</p>
               <p className="text-sm text-green-700">
-                Both you and the client have marked this booking as completed.
+                Both you and the client have confirmed that the work has been completed.
               </p>
               {hasReviewed && (
                 <p className="mt-2 text-sm text-green-700">Thank you for your review!</p>
@@ -367,6 +390,49 @@ function TechnicianBookingDetailContent({ id }: { id: string }) {
           }}
         />
       )}
+
+      {/* Completion Confirmation Dialog */}
+      <Dialog open={showCompletionDialog} onOpenChange={setShowCompletionDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Service Completion</DialogTitle>
+            <DialogDescription>
+              Please confirm that the service work has been fully completed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground mb-4">
+              Before confirming, please ensure:
+            </p>
+            <ul className="text-sm text-muted-foreground space-y-2 mb-4">
+              <li>• All work has been completed as agreed</li>
+              <li>• You are satisfied with the service provided</li>
+              <li>• Any issues have been resolved</li>
+            </ul>
+            <p className="text-base font-bold text-red-600">
+              ⚠️ Only confirm if the service is really completed. This action cannot be easily undone.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowCompletionDialog(false)}
+              disabled={updating}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                setShowCompletionDialog(false);
+                await handleMarkCompleted();
+              }}
+              disabled={updating}
+            >
+              {updating ? 'Confirming...' : 'Confirm Completion'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

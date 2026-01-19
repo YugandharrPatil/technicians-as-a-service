@@ -19,8 +19,11 @@ export default function SignUpPage() {
     setLoading(true);
 
     try {
-      await signInWithGoogle();
-      router.push('/');
+      await signInWithGoogle('client');
+      // Wait a bit for auth state to update
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Redirect to technicians page after successful signup
+      router.push('/technicians');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign up with Google');
     } finally {

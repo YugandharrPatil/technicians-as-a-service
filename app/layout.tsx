@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth/context";
 import { QueryProvider } from "@/lib/providers/query-provider";
+import { ThemeProvider } from "@/components/providers/theme-provider";
 import { ConditionalNavbar } from "@/components/conditional-navbar";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -22,17 +23,24 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${inter.variable} font-sans antialiased`}
       >
-        <QueryProvider>
-          <AuthProvider>
-            <ConditionalNavbar />
-            {children}
-            <Toaster />
-          </AuthProvider>
-        </QueryProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <QueryProvider>
+            <AuthProvider>
+              <ConditionalNavbar />
+              {children}
+              <Toaster />
+            </AuthProvider>
+          </QueryProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

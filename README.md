@@ -11,7 +11,7 @@ A Next.js portfolio project for managing a local multi-service home services com
 - **Reviews**: Leave reviews for completed bookings
 
 ### Admin Features
-- **Admin Authentication**: Firebase Auth with custom claims
+- **Admin Authentication**: Static email/password credentials (admin@taas.com / admin123)
 - **Technician Management**: Create, edit, and manage technician profiles
 - **Booking Management**: View all bookings, update status, track leads
 - **Client Management**: View all clients and their booking history
@@ -85,16 +85,29 @@ PINECONE_INDEX_NAME=your_index_name
 2. Get your API key
 3. Add it to your `.env.local`
 
-### 6. Set Admin Custom Claims
+### 6. Create Admin Account
 
-To set an admin user, you'll need to use Firebase Admin SDK. Create a script or use Firebase Console Functions to set custom claims:
+The admin login uses static credentials (email/password). Create the admin account in Firebase:
 
-```typescript
-// Example: Set admin claim for a user
-await adminAuth.setCustomUserClaims(uid, { admin: true });
+**Option 1: Using Firebase Console (Recommended)**
+1. Go to Firebase Console > Authentication > Users
+2. Click "Add user"
+3. Email: `admin@taas.com` (or set `NEXT_PUBLIC_ADMIN_EMAIL` env var)
+4. Password: `admin123` (or set `NEXT_PUBLIC_ADMIN_PASSWORD` env var)
+5. Click "Add user"
+
+**Option 2: Using Script**
+```bash
+pnpm tsx scripts/create-admin-account.ts
 ```
 
-Or use the API endpoint `/api/admin/set-admin-claim` (requires admin authentication).
+**Default Credentials:**
+- Email: `admin@taas.com`
+- Password: `admin123`
+
+You can customize these by setting environment variables:
+- `NEXT_PUBLIC_ADMIN_EMAIL` - Admin email
+- `NEXT_PUBLIC_ADMIN_PASSWORD` - Admin password
 
 ### 7. Run Development Server
 

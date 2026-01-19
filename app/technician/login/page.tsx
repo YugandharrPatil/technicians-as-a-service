@@ -32,7 +32,10 @@ export default function TechnicianLoginPage() {
         
         if (userSnap.exists()) {
           const userData = userSnap.data();
-          if (userData.role === 'technician') {
+          const userRoles = userData.roles || (userData.role ? [userData.role] : []);
+          
+          // Check if user has technician role (either current or in roles array)
+          if (userData.role === 'technician' || userRoles.includes('technician')) {
             // Check if technician profile exists
             const techniciansQuery = query(
               collection(db, 'technicians'),
@@ -48,6 +51,10 @@ export default function TechnicianLoginPage() {
               router.push('/technician/dashboard');
             }
             return; // Don't show login page
+          } else if (userData.role === 'client' || userRoles.includes('client')) {
+            // User has client role but logged in via technician login
+            // They can still log in as technician which will add technician role
+            // But if they're already logged in as client, we'll let them proceed
           }
         }
       } catch (err) {

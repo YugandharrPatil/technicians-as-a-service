@@ -3,8 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/context';
-import { getIdTokenResult, getIdToken } from 'firebase/auth';
-import { auth } from '@/lib/firebase/client';
+import { isAdminEmail } from '@/lib/auth/admin-client';
 
 type AdminGateProps = {
   children: ReactNode;
@@ -25,33 +24,14 @@ export function AdminGate({ children }: AdminGateProps) {
         return;
       }
 
-      try {
-        const tokenResult = await getIdTokenResult(user, true);
-        const adminClaim = tokenResult.claims.admin;
-
-        if (adminClaim === true) {
-          // Ensure session cookie exists for API routes
-          try {
-            const idToken = await getIdToken(user);
-            await fetch('/api/admin/create-session', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ idToken }),
-            });
-          } catch (sessionError) {
-            console.error('Error creating admin session:', sessionError);
-            // Continue anyway - the user is authenticated via Firebase Auth
-          }
-          setIsAdmin(true);
-        } else {
-          router.push('/admin/login');
-        }
-      } catch (error) {
-        console.error('Error checking admin status:', error);
+      // Check if user email matches admin email
+      if (isAdminEmail(user.email)) {
+        setIsAdmin(true);
+      } else {
         router.push('/admin/login');
-      } finally {
-        setChecking(false);
       }
+      
+      setChecking(false);
     }
 
     checkAdmin();

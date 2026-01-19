@@ -57,7 +57,11 @@ export function TechnicianGate({ children }: TechnicianGateProps) {
         if (userSnap.exists()) {
           const userData = userSnap.data();
           
-          if (userData.role === 'technician') {
+          // Check if user has technician role (either in roles array or role field)
+          const userRoles = userData.roles || (userData.role ? [userData.role] : []);
+          const hasTechnicianRole = userRoles.includes('technician') || userData.role === 'technician';
+          
+          if (hasTechnicianRole) {
             // Check if technician profile exists (unless on profile page)
             if (pathname !== '/technician/profile') {
               const techniciansQuery = query(

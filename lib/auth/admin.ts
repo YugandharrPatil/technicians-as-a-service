@@ -1,6 +1,9 @@
 import { adminAuth } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 
+// Static admin email - must match client-side ADMIN_EMAIL
+export const ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.NEXT_PUBLIC_ADMIN_EMAIL || 'admin@taas.com';
+
 export async function getAdminUser() {
   try {
     if (!adminAuth) {
@@ -16,7 +19,8 @@ export async function getAdminUser() {
 
     const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
     
-    if (decodedClaims.admin === true) {
+    // Check if email matches admin email
+    if (decodedClaims.email === ADMIN_EMAIL) {
       return decodedClaims;
     }
 

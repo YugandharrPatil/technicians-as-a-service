@@ -11,8 +11,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Home, Wrench, LogOut, User, Calendar } from 'lucide-react';
+import { Wrench, LogOut, Calendar } from 'lucide-react';
 import { useAuth } from '@/lib/auth/context';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 export function Navbar() {
   const { user, loading, signOut } = useAuth();
@@ -45,12 +46,6 @@ export function Navbar() {
 
         {/* Center Navigation Links */}
         <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-2">
-          <Link href="/">
-            <Button variant={pathname === '/' ? 'secondary' : 'ghost'} size="sm">
-              <Home className="mr-2 h-4 w-4" />
-              Home
-            </Button>
-          </Link>
           <Link href="/technicians">
             <Button variant={pathname === '/technicians' ? 'secondary' : 'ghost'} size="sm">
               <Wrench className="mr-2 h-4 w-4" />
@@ -105,6 +100,7 @@ export function Navbar() {
               </Button>
             </Link>
           )}
+          <ThemeToggle />
         </div>
       </div>
     </nav>

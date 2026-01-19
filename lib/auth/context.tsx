@@ -52,8 +52,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             email: user.email,
             displayName: user.displayName || '',
             role: 'client', // Default for backward compatibility
+            roles: ['client'], // Default roles array
             createdAt: new Date(),
           });
+        } else {
+          // Migrate existing users without roles array
+          const userData = userSnap.data();
+          if (!userData.roles && userData.role) {
+            await setDoc(userRef, {
+              ...userData,
+              roles: [userData.role],
+            }, { merge: true });
+          }
         }
       }
       
@@ -86,18 +96,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await setDoc(userRef, {
         email: user.email,
         displayName: user.displayName || '',
-        role: role,
+        role: role, // Current active role
+        roles: [role], // All roles this user has
         createdAt: new Date(),
       });
     } else {
-      // Update existing user's role if it's different (for flexibility)
+      // Update existing user - add role to roles array if not present, set as current role
       const existingData = userSnap.data();
-      if (existingData.role !== role) {
-        await setDoc(userRef, {
-          ...existingData,
-          role: role,
-        }, { merge: true });
-      }
+      const existingRoles = existingData.roles || (existingData.role ? [existingData.role] : []);
+      
+      // Add role to array if not already present
+      const updatedRoles = existingRoles.includes(role) 
+        ? existingRoles 
+        : [...existingRoles, role];
+      
+      await setDoc(userRef, {
+        ...existingData,
+        role: role, // Set current active role
+        roles: updatedRoles, // Update roles array
+      }, { merge: true });
     }
   };
 

@@ -14,6 +14,14 @@ import { db } from '@/lib/firebase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { ReviewDialog } from '@/components/review-dialog';
 import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export default function BookingStatusPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -25,6 +33,7 @@ export default function BookingStatusPage({ params }: { params: Promise<{ id: st
   const [updating, setUpdating] = useState(false);
   const [showReviewDialog, setShowReviewDialog] = useState(false);
   const [hasReviewed, setHasReviewed] = useState(false);
+  const [showCompletionDialog, setShowCompletionDialog] = useState(false);
   const queryClient = useQueryClient();
 
   // Real-time listener to detect when booking becomes completed
@@ -238,29 +247,43 @@ export default function BookingStatusPage({ params }: { params: Promise<{ id: st
             </div>
           )}
 
-          {(booking.status === 'confirmed' || booking.status === 'accepted') && !booking.completedByClient && (
+          {booking.status === 'confirmed' && booking.negotiatedPrice && booking.negotiatedDateTime && !booking.completedByClient && (
             <div className="pt-4">
               <Button 
-                onClick={handleMarkCompleted}
+                onClick={() => setShowCompletionDialog(true)}
                 disabled={updating}
                 variant="outline"
                 className="w-full"
               >
-                Mark as Completed
+                Mark Service as Completed
               </Button>
               {booking.completedByTechnician && (
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Technician has marked this booking as completed. Once you mark it as completed, the booking will be finalized.
+                  Technician has confirmed that the work is completed. Once you confirm as well, the service will be finalized.
                 </p>
               )}
+            </div>
+          )}
+          {(booking.status === 'accepted' || (booking.status === 'confirmed' && (!booking.negotiatedPrice || !booking.negotiatedDateTime))) && !booking.completedByClient && (
+            <div className="pt-4">
+              <Button 
+                disabled={true}
+                variant="outline"
+                className="w-full"
+              >
+                Mark Service as Completed
+              </Button>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Please send an offer in the chat and wait for the technician to accept it before marking the service as completed.
+              </p>
             </div>
           )}
 
           {booking.status === 'completed' && (
             <div className="rounded-lg bg-green-50 p-4">
-              <p className="font-semibold text-green-800">Booking Completed</p>
+              <p className="font-semibold text-green-800">Service Completed</p>
               <p className="text-sm text-green-700">
-                Both you and the technician have marked this booking as completed.
+                Both you and the technician have confirmed that the work has been completed.
               </p>
               {hasReviewed && (
                 <p className="mt-2 text-sm text-green-700">Thank you for your review!</p>
@@ -289,6 +312,49 @@ export default function BookingStatusPage({ params }: { params: Promise<{ id: st
           }}
         />
       )}
+
+      {/* Completion Confirmation Dialog */}
+      <Dialog open={showCompletionDialog} onOpenChange={setShowCompletionDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Service Completion</DialogTitle>
+            <DialogDescription>
+              Please confirm that the service work has been fully completed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground mb-4">
+              Before confirming, please ensure:
+            </p>
+            <ul className="text-sm text-muted-foreground space-y-2 mb-4">
+              <li>• All work has been completed as agreed</li>
+              <li>• You are satisfied with the service provided</li>
+              <li>• Any issues have been resolved</li>
+            </ul>
+            <p className="text-base font-bold text-red-600">
+              ⚠️ Only confirm if the service is really completed. This action cannot be easily undone.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowCompletionDialog(false)}
+              disabled={updating}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                setShowCompletionDialog(false);
+                await handleMarkCompleted();
+              }}
+              disabled={updating}
+            >
+              {updating ? 'Confirming...' : 'Confirm Completion'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
