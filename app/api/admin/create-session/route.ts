@@ -14,7 +14,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify the token and check if email matches admin email
-    const { adminAuth } = await import('@/lib/firebase/admin');
+    const { getAdminAuth } = await import('@/lib/firebase/admin');
+    const adminAuth = getAdminAuth();
     if (!adminAuth) {
       return NextResponse.json(
         { error: 'Admin auth not initialized' },

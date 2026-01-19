@@ -1,4 +1,4 @@
-import { adminAuth } from '@/lib/firebase/admin';
+import { getAdminAuth } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 
 // Static admin email - must match client-side ADMIN_EMAIL
@@ -6,6 +6,7 @@ export const ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.NEXT_PUBLIC_AD
 
 export async function getAdminUser() {
   try {
+    const adminAuth = getAdminAuth();
     if (!adminAuth) {
       return null;
     }

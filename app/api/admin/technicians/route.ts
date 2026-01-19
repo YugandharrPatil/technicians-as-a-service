@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebase/admin';
+import { getAdminDb } from '@/lib/firebase/admin';
 import { requireAdmin } from '@/lib/auth/admin';
 import { generateEmbedding, buildEmbeddingText } from '@/lib/embeddings';
 import { getPineconeIndex } from '@/lib/pinecone';
@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const adminDb = getAdminDb();
     if (!adminDb) {
       return NextResponse.json(
         { error: 'Database not initialized' },
@@ -121,6 +122,7 @@ export async function GET(request: NextRequest) {
   try {
     await requireAdmin();
 
+    const adminDb = getAdminDb();
     if (!adminDb) {
       return NextResponse.json(
         { error: 'Database not initialized' },

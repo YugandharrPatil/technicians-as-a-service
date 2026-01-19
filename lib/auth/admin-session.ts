@@ -1,7 +1,8 @@
-import { adminAuth } from '@/lib/firebase/admin';
+import { getAdminAuth } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 
 export async function createAdminSession(idToken: string) {
+  const adminAuth = getAdminAuth();
   if (!adminAuth) {
     throw new Error('Admin auth not initialized');
   }
@@ -21,6 +22,7 @@ export async function createAdminSession(idToken: string) {
 }
 
 export async function revokeAdminSession() {
+  const adminAuth = getAdminAuth();
   if (!adminAuth) {
     return;
   }

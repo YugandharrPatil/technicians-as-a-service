@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebase/admin';
+import { getAdminDb } from '@/lib/firebase/admin';
 import { requireAdmin } from '@/lib/auth/admin';
 
 export async function PATCH(
@@ -9,6 +9,7 @@ export async function PATCH(
   try {
     await requireAdmin();
 
+    const adminDb = getAdminDb();
     if (!adminDb) {
       return NextResponse.json(
         { error: 'Database not initialized' },

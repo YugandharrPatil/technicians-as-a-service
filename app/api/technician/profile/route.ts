@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireTechnician } from '@/lib/auth/technician';
-import { adminDb } from '@/lib/firebase/admin';
+import { getAdminDb } from '@/lib/firebase/admin';
 import { z } from 'zod';
 
 const technicianSchema = z.object({
@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
     }
     const uid = decodedToken.uid;
 
+    const adminDb = getAdminDb();
     if (!adminDb) {
       return NextResponse.json({ error: 'Database not initialized' }, { status: 500 });
     }
@@ -93,6 +94,7 @@ export async function PUT(request: NextRequest) {
     }
     const uid = decodedToken.uid;
 
+    const adminDb = getAdminDb();
     if (!adminDb) {
       return NextResponse.json({ error: 'Database not initialized' }, { status: 500 });
     }

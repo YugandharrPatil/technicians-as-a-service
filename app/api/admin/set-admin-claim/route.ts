@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth } from '@/lib/firebase/admin';
+import { getAdminAuth } from '@/lib/firebase/admin';
 import { requireAdmin } from '@/lib/auth/admin';
 
 export async function POST(request: NextRequest) {
@@ -7,6 +7,7 @@ export async function POST(request: NextRequest) {
     // Only existing admins can set admin claims
     await requireAdmin();
 
+    const adminAuth = getAdminAuth();
     if (!adminAuth) {
       return NextResponse.json(
         { error: 'Auth not initialized' },

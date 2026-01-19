@@ -1,8 +1,9 @@
-import { adminAuth } from '@/lib/firebase/admin';
+import { getAdminAuth } from '@/lib/firebase/admin';
 import { NextRequest } from 'next/server';
 
 export async function getTechnicianUser(request: NextRequest) {
   try {
+    const adminAuth = getAdminAuth();
     if (!adminAuth) {
       return null;
     }
