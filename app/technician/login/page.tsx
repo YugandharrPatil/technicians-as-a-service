@@ -1,124 +1,73 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { SignIn, useUser } from '@clerk/nextjs';
 import { useAuth } from '@/lib/auth/context';
-import { db } from '@/lib/firebase/client';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Chrome } from 'lucide-react';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 export default function TechnicianLoginPage() {
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [checking, setChecking] = useState(true);
-  const { signInWithGoogle, user, loading: authLoading } = useAuth();
+  const { user: clerkUser, isLoaded } = useUser();
+  const { syncUser } = useAuth();
   const router = useRouter();
 
-  // Check if user is already logged in and is technician, redirect if so
   useEffect(() => {
-    async function checkTechnicianStatus() {
-      if (authLoading) return;
-      
-      if (!user || !db) {
-        setChecking(false);
-        return;
-      }
+    async function handlePostSignIn() {
+      if (!isLoaded || !clerkUser) return;
 
-      try {
-        const userRef = doc(db, 'users', user.uid);
-        const userSnap = await getDoc(userRef);
-        
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-          const userRoles = userData.roles || (userData.role ? [userData.role] : []);
-          
-          // Check if user has technician role (either current or in roles array)
-          if (userData.role === 'technician' || userRoles.includes('technician')) {
-            // Check if technician profile exists
-            const techniciansQuery = query(
-              collection(db, 'technicians'),
-              where('userId', '==', user.uid)
-            );
-            const techniciansSnapshot = await getDocs(techniciansQuery);
-            
-            if (techniciansSnapshot.empty) {
-              // No profile, redirect to profile creation
-              router.push('/technician/profile');
-            } else {
-              // Profile exists, go to dashboard
-              router.push('/technician/dashboard');
-            }
-            return; // Don't show login page
-          } else if (userData.role === 'client' || userRoles.includes('client')) {
-            // User has client role but logged in via technician login
-            // They can still log in as technician which will add technician role
-            // But if they're already logged in as client, we'll let them proceed
+      // Sync user with 'technician' role
+      await syncUser('technician');
+
+      const supabase = getSupabaseBrowserClient();
+      const { data: userData } = await supabase
+        .from('taas_users')
+        .select('*')
+        .eq('id', clerkUser.id)
+        .single();
+
+      if (userData) {
+        const userRoles: string[] = userData.roles || (userData.role ? [userData.role] : []);
+
+        if (userData.role === 'technician' || userRoles.includes('technician')) {
+          // Check if technician profile exists
+          const { data: techData } = await supabase
+            .from('taas_technicians')
+            .select('id')
+            .eq('user_id', clerkUser.id)
+            .single();
+
+          if (!techData) {
+            router.push('/technician/profile');
+          } else {
+            router.push('/technician/dashboard');
           }
+          return;
         }
-      } catch (err) {
-        console.error('Error checking technician status:', err);
       }
-      
-      setChecking(false);
     }
 
-    checkTechnicianStatus();
-  }, [user, authLoading, router]);
+    handlePostSignIn();
+  }, [clerkUser, isLoaded]);
 
-  const handleGoogleSignIn = async () => {
-    setError('');
-    setLoading(true);
-
-    try {
-      await signInWithGoogle('technician');
-      
-      // Wait a bit for auth state to update
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // The useEffect will handle the redirect after user state updates
-      // For now, just wait - the redirect logic is in the useEffect above
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign in with Google');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Show loading while checking auth status
-  if (authLoading || checking) {
+  if (isLoaded && clerkUser) {
     return (
       <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-muted-foreground">Redirecting...</div>
       </div>
     );
   }
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Technician Sign In</CardTitle>
-          <CardDescription>Sign in with your Google account to access your technician dashboard</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {error && (
-              <div className="text-sm text-destructive">{error}</div>
-            )}
-            <Button 
-              type="button" 
-              className="w-full" 
-              disabled={loading}
-              onClick={handleGoogleSignIn}
-            >
-              <Chrome className="mr-2 h-4 w-4" />
-              {loading ? 'Signing in...' : 'Sign in with Google'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <SignIn
+        routing="hash"
+        appearance={{
+          elements: {
+            rootBox: 'mx-auto',
+            card: 'shadow-lg',
+          },
+        }}
+      />
     </div>
   );
 }

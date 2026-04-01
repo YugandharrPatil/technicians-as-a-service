@@ -3,8 +3,7 @@
 import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth/context';
-import { db } from '@/lib/firebase/client';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 type TechnicianGateProps = {
   children: ReactNode;
@@ -21,21 +20,11 @@ export function TechnicianGate({ children }: TechnicianGateProps) {
   const lastCheckedUidRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // Early returns - don't proceed if conditions aren't met
-    if (authLoading) {
-      return;
-    }
-    
-    // If we've already checked this exact UID and confirmed, skip
-    if (lastCheckedUidRef.current === user?.uid && hasCheckedRef.current) {
-      return;
-    }
-    
-    // Prevent concurrent checks
-    if (checkingRef.current) {
-      return;
-    }
-    
+    if (authLoading) return;
+
+    if (lastCheckedUidRef.current === user?.id && hasCheckedRef.current) return;
+    if (checkingRef.current) return;
+
     async function checkTechnician() {
       checkingRef.current = true;
       try {
@@ -45,40 +34,34 @@ export function TechnicianGate({ children }: TechnicianGateProps) {
           return;
         }
 
-        if (!db) {
-          setChecking(false);
-          checkingRef.current = false;
-          return;
-        }
-        
-        const userRef = doc(db, 'users', user.uid);
-        const userSnap = await getDoc(userRef);
-        
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-          
-          // Check if user has technician role (either in roles array or role field)
-          const userRoles = userData.roles || (userData.role ? [userData.role] : []);
+        const supabase = getSupabaseBrowserClient();
+
+        const { data: userData } = await supabase
+          .from('taas_users')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (userData) {
+          const userRoles: string[] = userData.roles || (userData.role ? [userData.role] : []);
           const hasTechnicianRole = userRoles.includes('technician') || userData.role === 'technician';
-          
+
           if (hasTechnicianRole) {
-            // Check if technician profile exists (unless on profile page)
             if (pathname !== '/technician/profile') {
-              const techniciansQuery = query(
-                collection(db, 'technicians'),
-                where('userId', '==', user.uid)
-              );
-              const techniciansSnapshot = await getDocs(techniciansQuery);
-              
-              if (techniciansSnapshot.empty) {
-                // No profile, redirect to profile creation
+              const { data: techData } = await supabase
+                .from('taas_technicians')
+                .select('id')
+                .eq('user_id', user.id)
+                .single();
+
+              if (!techData) {
                 router.push('/technician/profile');
                 checkingRef.current = false;
                 return;
               }
             }
-            
-            lastCheckedUidRef.current = user.uid;
+
+            lastCheckedUidRef.current = user.id;
             hasCheckedRef.current = true;
             setIsTechnician(true);
             setChecking(false);
@@ -103,7 +86,7 @@ export function TechnicianGate({ children }: TechnicianGateProps) {
     }
 
     checkTechnician();
-  }, [user?.uid, authLoading]);
+  }, [user?.id, authLoading]);
 
   if (authLoading || checking) {
     return (

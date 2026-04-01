@@ -1,130 +1,116 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { 
-  User, 
-  onAuthStateChanged, 
-  signInWithPopup,
-  signOut as firebaseSignOut,
-} from 'firebase/auth';
-import { auth } from '@/lib/firebase/client';
-import { GoogleAuthProvider } from 'firebase/auth';
-
-const googleProvider = typeof window !== 'undefined' ? new GoogleAuthProvider() : null;
-if (googleProvider) {
-  googleProvider.setCustomParameters({
-    prompt: 'select_account',
-  });
-}
-import { db } from '@/lib/firebase/client';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
+import { useUser, useClerk } from '@clerk/nextjs';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import type { User as DbUser, UserRole } from '@/lib/types/database';
 
 type AuthContextType = {
-  user: User | null;
+  user: { id: string; email: string; displayName: string; photoURL: string | null } | null;
+  dbUser: DbUser | null;
   loading: boolean;
-  signInWithGoogle: (role?: 'client' | 'technician') => Promise<void>;
   signOut: () => Promise<void>;
+  syncUser: (role?: UserRole) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { user: clerkUser, isLoaded } = useUser();
+  const { signOut: clerkSignOut } = useClerk();
+  const [dbUser, setDbUser] = useState<DbUser | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
-  useEffect(() => {
-    if (!auth || !db) {
-      setLoading(false);
-      return;
-    }
+  const user = clerkUser
+    ? {
+        id: clerkUser.id,
+        email: clerkUser.primaryEmailAddress?.emailAddress || '',
+        displayName: clerkUser.fullName || clerkUser.firstName || '',
+        photoURL: clerkUser.imageUrl || null,
+      }
+    : null;
 
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user && db) {
-        // Check if user document exists, but don't create it here
-        // User creation happens during sign-in with explicit role
-        const userRef = doc(db, 'users', user.uid);
-        const userSnap = await getDoc(userRef);
-        
-        // Only create if doesn't exist (for backward compatibility)
-        // In normal flow, role is set during sign-in
-        if (!userSnap.exists()) {
-          await setDoc(userRef, {
-            email: user.email,
-            displayName: user.displayName || '',
-            role: 'client', // Default for backward compatibility
-            roles: ['client'], // Default roles array
-            createdAt: new Date(),
-          });
+  const syncUser = useCallback(async (role?: UserRole) => {
+    if (!clerkUser || syncing) return;
+
+    setSyncing(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const userId = clerkUser.id;
+      const email = clerkUser.primaryEmailAddress?.emailAddress || '';
+      const displayName = clerkUser.fullName || clerkUser.firstName || '';
+
+      // Check if user exists
+      const { data: existingUser } = await supabase
+        .from('taas_users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (!existingUser) {
+        // Create new user
+        const activeRole = role || 'client';
+        await supabase.from('taas_users').insert({
+          id: userId,
+          email,
+          display_name: displayName,
+          role: activeRole,
+          roles: [activeRole],
+        });
+
+        const { data: newUser } = await supabase
+          .from('taas_users')
+          .select('*')
+          .eq('id', userId)
+          .single();
+        setDbUser(newUser);
+      } else {
+        // Update existing user if role is specified
+        if (role) {
+          const existingRoles: string[] = existingUser.roles || (existingUser.role ? [existingUser.role] : []);
+          const updatedRoles = existingRoles.includes(role)
+            ? existingRoles
+            : [...existingRoles, role];
+
+          await supabase
+            .from('taas_users')
+            .update({
+              role,
+              roles: updatedRoles,
+              display_name: displayName,
+            })
+            .eq('id', userId);
+
+          setDbUser({ ...existingUser, role, roles: updatedRoles as UserRole[] });
         } else {
-          // Migrate existing users without roles array
-          const userData = userSnap.data();
-          if (!userData.roles && userData.role) {
-            await setDoc(userRef, {
-              ...userData,
-              roles: [userData.role],
-            }, { merge: true });
-          }
+          setDbUser(existingUser);
         }
       }
-      
-      // Only update state if user actually changed (compare UIDs)
-      setUser((prevUser) => {
-        if (prevUser?.uid === user?.uid) {
-          return prevUser; // Return same reference to prevent re-renders
-        }
-        return user;
-      });
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  const signInWithGoogle = async (role: 'client' | 'technician' = 'client') => {
-    if (!auth || !googleProvider || !db) {
-      throw new Error('Firebase not initialized');
+    } catch (error) {
+      console.error('Error syncing user:', error);
+    } finally {
+      setSyncing(false);
     }
-    const result = await signInWithPopup(auth, googleProvider);
-    const user = result.user;
-    
-    // Create or update user document with specified role
-    const userRef = doc(db, 'users', user.uid);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      // Create new user with specified role
-      await setDoc(userRef, {
-        email: user.email,
-        displayName: user.displayName || '',
-        role: role, // Current active role
-        roles: [role], // All roles this user has
-        createdAt: new Date(),
-      });
-    } else {
-      // Update existing user - add role to roles array if not present, set as current role
-      const existingData = userSnap.data();
-      const existingRoles = existingData.roles || (existingData.role ? [existingData.role] : []);
-      
-      // Add role to array if not already present
-      const updatedRoles = existingRoles.includes(role) 
-        ? existingRoles 
-        : [...existingRoles, role];
-      
-      await setDoc(userRef, {
-        ...existingData,
-        role: role, // Set current active role
-        roles: updatedRoles, // Update roles array
-      }, { merge: true });
+  }, [clerkUser, syncing]);
+
+  // Auto-sync user when Clerk auth state changes
+  useEffect(() => {
+    if (isLoaded && clerkUser) {
+      syncUser();
+    } else if (isLoaded && !clerkUser) {
+      setDbUser(null);
     }
-  };
+  }, [isLoaded, clerkUser?.id]);
 
   const signOut = async () => {
-    if (!auth) return;
-    await firebaseSignOut(auth);
+    setDbUser(null);
+    await clerkSignOut();
   };
 
+  const loading = !isLoaded;
+
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ user, dbUser, loading, signOut, syncUser }}>
       {children}
     </AuthContext.Provider>
   );

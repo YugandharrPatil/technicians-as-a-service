@@ -4,7 +4,7 @@ import { use } from 'react';
 import { useEffect, useState } from 'react';
 import { AdminGate } from '@/components/auth/admin-gate';
 import { useRouter } from 'next/navigation';
-import type { Technician } from '@/lib/types/firestore';
+import type { Technician } from '@/lib/types/database';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useForm } from 'react-hook-form';
@@ -23,8 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { MultiSelect } from '@/components/ui/multi-select';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '@/lib/firebase/client';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import { X } from 'lucide-react';
 
@@ -104,15 +103,15 @@ function EditTechnicianContent({ id }: { id: string }) {
         setTechnician(data);
         form.reset({
           name: data.name,
-          jobTypes: data.jobTypes,
+          jobTypes: data.job_types || data.jobTypes,
           bio: data.bio,
           tags: Array.isArray(data.tags) ? data.tags : [],
           cities: Array.isArray(data.cities) ? data.cities : [],
-          isVisible: data.isVisible,
-          photoUrl: data.photoUrl || undefined,
+          isVisible: data.is_visible ?? data.isVisible,
+          photoUrl: data.photo_url || data.photoUrl || undefined,
         });
-        if (data.photoUrl) {
-          setPhotoPreview(data.photoUrl);
+        if (data.photo_url || data.photoUrl) {
+          setPhotoPreview(data.photo_url || data.photoUrl);
         }
       }
     } catch (error) {
@@ -123,31 +122,19 @@ function EditTechnicianContent({ id }: { id: string }) {
   }
 
   async function uploadPhoto(file: File): Promise<string> {
-    if (!storage) {
-      throw new Error('Storage not initialized');
-    }
+    if (file.size > 5 * 1024 * 1024) throw new Error('File size must be less than 5MB');
+    if (!file.type.startsWith('image/')) throw new Error('File must be an image');
 
-    // Validate file size (5MB max)
-    if (file.size > 5 * 1024 * 1024) {
-      throw new Error('File size must be less than 5MB');
-    }
-
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      throw new Error('File must be an image');
-    }
-
-    // Create a unique filename
+    const supabase = getSupabaseBrowserClient();
     const timestamp = Date.now();
-    const filename = `technicians/${timestamp}_${file.name}`;
-    const storageRef = ref(storage, filename);
+    const ext = file.name.split('.').pop() || 'jpg';
+    const filename = `${timestamp}_admin_edit.${ext}`;
 
-    // Upload file
-    await uploadBytes(storageRef, file);
+    const { error } = await supabase.storage.from('technician-photos').upload(filename, file, { upsert: true });
+    if (error) throw new Error('Failed to upload photo: ' + error.message);
 
-    // Get download URL
-    const downloadURL = await getDownloadURL(storageRef);
-    return downloadURL;
+    const { data: urlData } = supabase.storage.from('technician-photos').getPublicUrl(filename);
+    return urlData.publicUrl;
   }
 
   async function onSubmit(data: TechnicianFormValues) {
@@ -156,7 +143,7 @@ function EditTechnicianContent({ id }: { id: string }) {
       let photoUrl = data.photoUrl;
 
       // Upload photo if file is selected
-      if (photoFile && storage) {
+      if (photoFile) {
         setUploadingPhoto(true);
         try {
           photoUrl = await uploadPhoto(photoFile);

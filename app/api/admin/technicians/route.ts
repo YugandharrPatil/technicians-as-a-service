@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminDb } from '@/lib/firebase/admin';
 import { requireAdmin } from '@/lib/auth/admin';
+import { getSupabaseServiceClient } from '@/lib/supabase/server';
 import { generateEmbedding, buildEmbeddingText } from '@/lib/embeddings';
 import { getPineconeIndex } from '@/lib/pinecone';
 import { z } from 'zod';
-import type { Technician, JobType } from '@/lib/types/firestore';
 
 const technicianSchema = z.object({
   name: z.string().min(1),
@@ -14,41 +13,37 @@ const technicianSchema = z.object({
   cities: z.array(z.string().min(1)),
   isVisible: z.boolean(),
   photoUrl: z.string().optional(),
-  userId: z.string().optional(), // Link to users collection (optional, set when technician signs up)
+  userId: z.string().optional(),
 });
 
 export async function POST(request: NextRequest) {
   try {
-    try {
-      await requireAdmin();
-    } catch (authError) {
-      console.error('Admin auth error:', authError);
-      return NextResponse.json(
-        { error: 'Unauthorized: Admin access required' },
-        { status: 401 }
-      );
+    try { await requireAdmin(); } catch {
+      return NextResponse.json({ error: 'Unauthorized: Admin access required' }, { status: 401 });
     }
 
-    const adminDb = getAdminDb();
-    if (!adminDb) {
-      return NextResponse.json(
-        { error: 'Database not initialized' },
-        { status: 500 }
-      );
-    }
-
+    const supabase = getSupabaseServiceClient();
     const body = await request.json();
     const data = technicianSchema.parse(body);
 
-    // Create technician document
-    const technicianRef = adminDb.collection('technicians').doc();
-    const technicianData: Omit<Technician, 'ratingAvg' | 'ratingCount'> = {
-      ...data,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    const { data: newTech, error: insertError } = await supabase
+      .from('taas_technicians')
+      .insert({
+        name: data.name,
+        job_types: data.jobTypes,
+        bio: data.bio,
+        tags: data.tags,
+        cities: data.cities,
+        is_visible: data.isVisible,
+        photo_url: data.photoUrl,
+        user_id: data.userId,
+      })
+      .select('id')
+      .single();
 
-    await technicianRef.set(technicianData);
+    if (insertError || !newTech) {
+      return NextResponse.json({ error: 'Failed to create technician' }, { status: 500 });
+    }
 
     // Generate embedding and upsert to Pinecone
     try {
@@ -62,86 +57,60 @@ export async function POST(request: NextRequest) {
 
       const embedding = await generateEmbedding(embeddingText);
       const index = await getPineconeIndex();
-      const pineconeId = `technician:${technicianRef.id}`;
+      const pineconeId = `technician:${newTech.id}`;
 
-      await index.upsert([
-        {
-          id: pineconeId,
-          values: embedding,
-          metadata: {
-            jobTypes: data.jobTypes,
-            tags: data.tags,
-            cities: data.cities,
-            isVisible: data.isVisible,
-            technicianId: technicianRef.id,
-          },
+      await index.upsert([{
+        id: pineconeId,
+        values: embedding,
+        metadata: {
+          jobTypes: data.jobTypes,
+          tags: data.tags,
+          cities: data.cities,
+          isVisible: data.isVisible,
+          technicianId: newTech.id,
         },
-      ]);
+      }]);
 
-      // Update technician with embedding metadata
-      await technicianRef.update({
+      await supabase.from('taas_technicians').update({
         embedding: {
           provider: 'gemini',
           model: 'text-embedding-004',
           pineconeId,
-          updatedAt: new Date(),
+          updatedAt: new Date().toISOString(),
         },
-      });
+      }).eq('id', newTech.id);
     } catch (embeddingError) {
       console.error('Error generating embedding:', embeddingError);
-      // Continue even if embedding fails - mark it as failed
-      await technicianRef.update({
+      await supabase.from('taas_technicians').update({
         embedding: {
           provider: 'gemini',
           model: 'text-embedding-004',
           pineconeId: '',
-          updatedAt: new Date(),
+          updatedAt: new Date().toISOString(),
           error: 'Failed to generate embedding',
         },
-      });
+      }).eq('id', newTech.id);
     }
 
-    return NextResponse.json({ id: technicianRef.id, success: true });
+    return NextResponse.json({ id: newTech.id, success: true });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Validation error', details: error.issues },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Validation error', details: error.issues }, { status: 400 });
     }
-
     console.error('Error creating technician:', error);
-    return NextResponse.json(
-      { error: 'Failed to create technician' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to create technician' }, { status: 500 });
   }
 }
 
 export async function GET(request: NextRequest) {
   try {
     await requireAdmin();
-
-    const adminDb = getAdminDb();
-    if (!adminDb) {
-      return NextResponse.json(
-        { error: 'Database not initialized' },
-        { status: 500 }
-      );
-    }
-
-    const snapshot = await adminDb.collection('technicians').get();
-    const technicians = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-
+    const supabase = getSupabaseServiceClient();
+    const { data: technicians, error } = await supabase.from('taas_technicians').select('*');
+    if (error) throw error;
     return NextResponse.json({ technicians });
   } catch (error) {
     console.error('Error fetching technicians:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch technicians' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch technicians' }, { status: 500 });
   }
 }

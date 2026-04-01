@@ -2,7 +2,7 @@
 
 import { useAuth } from '@/lib/auth/context';
 import { AuthGate } from '@/components/auth/auth-gate';
-import type { Booking } from '@/lib/types/firestore';
+import type { Booking } from '@/lib/types/database';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,17 +20,20 @@ export default function BookingsPage() {
 
 function BookingsContent() {
   const { user } = useAuth();
-  const { data: bookings = [], isLoading, error } = useBookings(user?.uid);
+  const { data: bookings = [], isLoading, error } = useBookings(user?.id);
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending':
+      case 'requested':
         return 'bg-yellow-100 text-yellow-800';
       case 'confirmed':
+      case 'accepted':
         return 'bg-blue-100 text-blue-800';
       case 'completed':
         return 'bg-green-100 text-green-800';
       case 'cancelled':
+      case 'rejected':
         return 'bg-red-100 text-red-800';
       default:
         return 'bg-gray-100 text-gray-800';
@@ -64,21 +67,19 @@ function BookingsContent() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {bookings.map((booking) => {
-            const preferredDate = booking.preferredDateTime instanceof Date
-              ? booking.preferredDateTime
-              : typeof booking.preferredDateTime === 'string'
-              ? new Date(booking.preferredDateTime)
-              : booking.preferredDateTime?.toDate?.() || new Date();
+          {bookings.map((booking: any) => {
+            const preferredDate = typeof booking.preferred_date_time === 'string'
+              ? new Date(booking.preferred_date_time)
+              : new Date();
 
             return (
               <Card key={booking.id}>
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle>{booking.serviceType}</CardTitle>
+                      <CardTitle>{booking.service_type}</CardTitle>
                       <CardDescription>
-                        {booking.technicianName || 'Loading...'}
+                        {booking.technician_name || 'Loading...'}
                       </CardDescription>
                     </div>
                     <Badge className={getStatusColor(booking.status)}>

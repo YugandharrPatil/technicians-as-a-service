@@ -1,32 +1,36 @@
 import { useQuery } from '@tanstack/react-query';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase/client';
-import type { Booking, Technician } from '@/lib/types/firestore';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import type { Booking, Technician } from '@/lib/types/database';
 
 export function useBooking(id: string | undefined) {
   return useQuery({
     queryKey: ['booking', id],
     queryFn: async () => {
-      if (!id || !db) throw new Error('Booking ID is required');
+      if (!id) throw new Error('Booking ID is required');
 
-      const bookingRef = doc(db, 'bookings', id);
-      const bookingSnap = await getDoc(bookingRef);
+      const supabase = getSupabaseBrowserClient();
 
-      if (!bookingSnap.exists()) {
+      const { data: booking, error } = await supabase
+        .from('taas_bookings')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error || !booking) {
         throw new Error('Booking not found');
       }
 
-      const booking = { ...bookingSnap.data() as Booking, id: bookingSnap.id };
-
       // Load technician
-      const techRef = doc(db, 'technicians', booking.technicianId);
-      const techSnap = await getDoc(techRef);
-      let technician: (Technician & { id: string }) | null = null;
-      if (techSnap.exists()) {
-        technician = { ...techSnap.data() as Technician, id: techSnap.id };
-      }
+      const { data: technician } = await supabase
+        .from('taas_technicians')
+        .select('*')
+        .eq('id', booking.technician_id)
+        .single();
 
-      return { booking, technician };
+      return {
+        booking: booking as Booking,
+        technician: technician as (Technician | null),
+      };
     },
     enabled: !!id,
   });

@@ -1,66 +1,44 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { SignUp, useUser } from '@clerk/nextjs';
 import { useAuth } from '@/lib/auth/context';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import Link from 'next/link';
-import { Chrome } from 'lucide-react';
 
 export default function SignUpPage() {
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { signInWithGoogle } = useAuth();
+  const { user: clerkUser, isLoaded } = useUser();
+  const { syncUser } = useAuth();
   const router = useRouter();
 
-  const handleGoogleSignIn = async () => {
-    setError('');
-    setLoading(true);
-
-    try {
-      await signInWithGoogle('client');
-      // Wait a bit for auth state to update
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      // Redirect to technicians page after successful signup
+  useEffect(() => {
+    async function handlePostSignUp() {
+      if (!isLoaded || !clerkUser) return;
+      await syncUser('client');
       router.push('/technicians');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign up with Google');
-    } finally {
-      setLoading(false);
     }
-  };
+
+    handlePostSignUp();
+  }, [clerkUser, isLoaded]);
+
+  if (isLoaded && clerkUser) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <div className="text-muted-foreground">Redirecting...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Sign Up</CardTitle>
-          <CardDescription>Create a new account with Google to get started</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {error && (
-              <div className="text-sm text-destructive">{error}</div>
-            )}
-            <Button 
-              type="button" 
-              className="w-full" 
-              disabled={loading}
-              onClick={handleGoogleSignIn}
-            >
-              <Chrome className="mr-2 h-4 w-4" />
-              {loading ? 'Signing up...' : 'Sign up with Google'}
-            </Button>
-            <div className="text-center text-sm">
-              Already have an account?{' '}
-              <Link href="/login" className="text-primary underline">
-                Sign in
-              </Link>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <SignUp
+        routing="hash"
+        appearance={{
+          elements: {
+            rootBox: 'mx-auto',
+            card: 'shadow-lg',
+          },
+        }}
+      />
     </div>
   );
 }

@@ -22,8 +22,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { MultiSelect } from '@/components/ui/multi-select';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '@/lib/firebase/client';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import { Upload, X } from 'lucide-react';
 
@@ -90,56 +89,20 @@ function CreateTechnicianContent() {
   });
 
   async function uploadPhoto(file: File): Promise<string> {
-    if (!storage) {
-      throw new Error('Storage not initialized');
-    }
+    if (!user) throw new Error('You must be authenticated to upload photos');
+    if (file.size > 5 * 1024 * 1024) throw new Error('File size must be less than 5MB');
+    if (!file.type.startsWith('image/')) throw new Error('File must be an image');
 
-    if (!user) {
-      throw new Error('You must be authenticated to upload photos');
-    }
-
-    // Validate file size (5MB max)
-    if (file.size > 5 * 1024 * 1024) {
-      throw new Error('File size must be less than 5MB');
-    }
-
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      throw new Error('File must be an image');
-    }
-
-    // Sanitize filename - remove special characters and spaces
-    const sanitizeFilename = (name: string): string => {
-      // Get file extension
-      const ext = name.split('.').pop() || '';
-      // Remove extension and sanitize
-      const baseName = name.substring(0, name.lastIndexOf('.')) || name;
-      // Replace special characters with underscores and remove spaces
-      const sanitized = baseName
-        .replace(/[^a-zA-Z0-9]/g, '_')
-        .replace(/\s+/g, '_')
-        .replace(/_+/g, '_')
-        .toLowerCase();
-      return `${sanitized}.${ext}`;
-    };
-
-    // Create a unique filename with sanitized name
+    const supabase = getSupabaseBrowserClient();
     const timestamp = Date.now();
-    const sanitizedName = sanitizeFilename(file.name);
-    const filename = `technicians/${timestamp}_${sanitizedName}`;
-    const storageRef = ref(storage, filename);
+    const ext = file.name.split('.').pop() || 'jpg';
+    const filename = `${timestamp}_admin.${ext}`;
 
-    try {
-      // Upload file
-      await uploadBytes(storageRef, file);
+    const { error } = await supabase.storage.from('technician-photos').upload(filename, file, { upsert: true });
+    if (error) throw new Error('Failed to upload photo: ' + error.message);
 
-      // Get download URL
-      const downloadURL = await getDownloadURL(storageRef);
-      return downloadURL;
-    } catch (error) {
-      console.error('Firebase Storage upload error:', error);
-      throw new Error('Failed to upload photo. Please check your Firebase Storage configuration and authentication.');
-    }
+    const { data: urlData } = supabase.storage.from('technician-photos').getPublicUrl(filename);
+    return urlData.publicUrl;
   }
 
   async function onSubmit(data: TechnicianFormValues) {
@@ -148,7 +111,7 @@ function CreateTechnicianContent() {
       let photoUrl = data.photoUrl;
 
       // Upload photo if file is selected
-      if (photoFile && storage) {
+      if (photoFile) {
         setUploadingPhoto(true);
         try {
           photoUrl = await uploadPhoto(photoFile);

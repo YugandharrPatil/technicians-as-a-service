@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { JobType } from '@/lib/types/firestore';
+import type { JobType } from '@/lib/types/database';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -153,9 +153,9 @@ export default function TechniciansPage() {
             <Card key={tech.id} className="hover:shadow-lg transition-shadow">
               <CardHeader>
                 <div className="flex items-start gap-4">
-                  {tech.photoUrl ? (
+                  {tech.photo_url ? (
                     <img
-                      src={tech.photoUrl}
+                      src={tech.photo_url}
                       alt={tech.name}
                       className="h-16 w-16 rounded-lg object-cover border"
                     />
@@ -174,14 +174,14 @@ export default function TechniciansPage() {
                 <div className="mb-4 space-y-3">
                   {/* Job Types - Truncated */}
                   <div className="flex flex-wrap gap-1.5">
-                    {tech.jobTypes.slice(0, 2).map((type) => (
+                    {tech.job_types.slice(0, 2).map((type) => (
                       <Badge key={type} variant="secondary" className="text-xs">
                         {type.replace('_', ' ')}
                       </Badge>
                     ))}
-                    {tech.jobTypes.length > 2 && (
+                    {tech.job_types.length > 2 && (
                       <Badge variant="secondary" className="text-xs">
-                        +{tech.jobTypes.length - 2}
+                        +{tech.job_types.length - 2}
                       </Badge>
                     )}
                   </div>
@@ -200,13 +200,13 @@ export default function TechniciansPage() {
                   )}
                   
                   {/* Rating - Compact */}
-                  {tech.ratingAvg ? (
+                  {tech.rating_avg ? (
                     <div className="flex items-center gap-1.5">
                       <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <span className="text-sm font-semibold">{tech.ratingAvg.toFixed(1)}</span>
-                      {tech.ratingCount && (
+                      <span className="text-sm font-semibold">{tech.rating_avg.toFixed(1)}</span>
+                      {tech.rating_count && (
                         <span className="text-xs text-muted-foreground">
-                          ({tech.ratingCount})
+                          ({tech.rating_count})
                         </span>
                       )}
                     </div>

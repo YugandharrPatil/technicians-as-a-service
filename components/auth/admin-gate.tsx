@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/lib/auth/context';
+import { useUser } from '@clerk/nextjs';
 import { isAdminEmail } from '@/lib/auth/admin-client';
 
 type AdminGateProps = {
@@ -10,34 +10,30 @@ type AdminGateProps = {
 };
 
 export function AdminGate({ children }: AdminGateProps) {
-  const { user, loading: authLoading } = useAuth();
+  const { user, isLoaded } = useUser();
   const [isAdmin, setIsAdmin] = useState(false);
   const [checking, setChecking] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
-    async function checkAdmin() {
-      if (authLoading) return;
+    if (!isLoaded) return;
 
-      if (!user) {
-        router.push('/admin/login');
-        return;
-      }
-
-      // Check if user email matches admin email
-      if (isAdminEmail(user.email)) {
-        setIsAdmin(true);
-      } else {
-        router.push('/admin/login');
-      }
-      
-      setChecking(false);
+    if (!user) {
+      router.push('/admin/login');
+      return;
     }
 
-    checkAdmin();
-  }, [user, authLoading, router]);
+    const email = user.primaryEmailAddress?.emailAddress;
+    if (isAdminEmail(email)) {
+      setIsAdmin(true);
+    } else {
+      router.push('/admin/login');
+    }
 
-  if (authLoading || checking) {
+    setChecking(false);
+  }, [user, isLoaded, router]);
+
+  if (!isLoaded || checking) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-muted-foreground">Loading...</div>

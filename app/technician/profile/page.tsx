@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react';
 import { TechnicianGate } from '@/components/auth/technician-gate';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/context';
-import { getIdToken } from 'firebase/auth';
-import { auth } from '@/lib/firebase/client';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useForm } from 'react-hook-form';
@@ -24,11 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { MultiSelect } from '@/components/ui/multi-select';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '@/lib/firebase/client';
-import { db } from '@/lib/firebase/client';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { Upload, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { toast } from 'sonner';
 
 // Popular US cities for serviceable areas
@@ -98,30 +93,28 @@ function TechnicianProfileContent() {
   // Load existing technician profile
   useEffect(() => {
     async function loadTechnicianProfile() {
-      if (!user || !db) return;
-
+      if (!user) return;
       try {
-        const techniciansQuery = query(
-          collection(db, 'technicians'),
-          where('userId', '==', user.uid)
-        );
-        const techniciansSnapshot = await getDocs(techniciansQuery);
+        const supabase = getSupabaseBrowserClient();
+        const { data: techData } = await supabase
+          .from('taas_technicians')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
 
-        if (!techniciansSnapshot.empty) {
-          const technicianDoc = techniciansSnapshot.docs[0];
-          const technicianData = technicianDoc.data();
+        if (techData) {
           setIsEdit(true);
           form.reset({
-            name: technicianData.name || '',
-            jobTypes: technicianData.jobTypes || [],
-            bio: technicianData.bio || '',
-            tags: technicianData.tags || [],
-            cities: technicianData.cities || [],
-            isVisible: technicianData.isVisible ?? true,
-            photoUrl: technicianData.photoUrl || undefined,
+            name: techData.name || '',
+            jobTypes: techData.job_types || [],
+            bio: techData.bio || '',
+            tags: techData.tags || [],
+            cities: techData.cities || [],
+            isVisible: techData.is_visible ?? true,
+            photoUrl: techData.photo_url || undefined,
           });
-          if (technicianData.photoUrl) {
-            setPhotoPreview(technicianData.photoUrl);
+          if (techData.photo_url) {
+            setPhotoPreview(techData.photo_url);
           }
         }
       } catch (error) {
@@ -135,60 +128,35 @@ function TechnicianProfileContent() {
   }, [user, form]);
 
   async function uploadPhoto(file: File): Promise<string> {
-    if (!storage) {
-      throw new Error('Storage not initialized');
-    }
+    if (!user) throw new Error('You must be authenticated to upload photos');
+    if (file.size > 5 * 1024 * 1024) throw new Error('File size must be less than 5MB');
+    if (!file.type.startsWith('image/')) throw new Error('File must be an image');
 
-    if (!user) {
-      throw new Error('You must be authenticated to upload photos');
-    }
-
-    // Validate file size (5MB max)
-    if (file.size > 5 * 1024 * 1024) {
-      throw new Error('File size must be less than 5MB');
-    }
-
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      throw new Error('File must be an image');
-    }
-
-    // Sanitize filename
-    const sanitizeFilename = (name: string): string => {
-      const ext = name.split('.').pop() || '';
-      const baseName = name.substring(0, name.lastIndexOf('.')) || name;
-      const sanitized = baseName
-        .replace(/[^a-zA-Z0-9]/g, '_')
-        .replace(/\s+/g, '_')
-        .replace(/_+/g, '_')
-        .toLowerCase();
-      return `${sanitized}.${ext}`;
-    };
-
+    const supabase = getSupabaseBrowserClient();
     const timestamp = Date.now();
-    const sanitizedName = sanitizeFilename(file.name);
-    const filename = `technicians/${timestamp}_${sanitizedName}`;
-    const storageRef = ref(storage, filename);
+    const ext = file.name.split('.').pop() || 'jpg';
+    const filename = `${timestamp}_${user.id}.${ext}`;
 
-    try {
-      await uploadBytes(storageRef, file);
-      const downloadURL = await getDownloadURL(storageRef);
-      return downloadURL;
-    } catch (error) {
-      console.error('Firebase Storage upload error:', error);
-      throw new Error('Failed to upload photo. Please check your Firebase Storage configuration.');
-    }
+    const { error } = await supabase.storage
+      .from('technician-photos')
+      .upload(filename, file, { upsert: true });
+
+    if (error) throw new Error('Failed to upload photo: ' + error.message);
+
+    const { data: urlData } = supabase.storage
+      .from('technician-photos')
+      .getPublicUrl(filename);
+
+    return urlData.publicUrl;
   }
 
   async function onSubmit(data: TechnicianFormValues) {
     if (!user) return;
-
     setSubmitting(true);
     try {
       let photoUrl = data.photoUrl;
 
-      // Upload photo if file is selected
-      if (photoFile && storage) {
+      if (photoFile) {
         setUploadingPhoto(true);
         try {
           photoUrl = await uploadPhoto(photoFile);
@@ -203,23 +171,12 @@ function TechnicianProfileContent() {
         }
       }
 
-      // Get ID token for authentication
-      if (!auth || !auth.currentUser) {
-        toast.error('You must be logged in to save your profile');
-        setSubmitting(false);
-        return;
-      }
-
-      const idToken = await getIdToken(auth.currentUser);
       const endpoint = '/api/technician/profile';
       const method = isEdit ? 'PUT' : 'POST';
 
       const response = await fetch(endpoint, {
         method,
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${idToken}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...data,
           photoUrl,
@@ -242,11 +199,7 @@ function TechnicianProfileContent() {
   }
 
   if (loading) {
-    return (
-      <div className="container mx-auto max-w-2xl p-4">
-        <div className="text-center">Loading...</div>
-      </div>
-    );
+    return (<div className="container mx-auto max-w-2xl p-4"><div className="text-center">Loading...</div></div>);
   }
 
   return (
@@ -254,217 +207,106 @@ function TechnicianProfileContent() {
       <Card>
         <CardHeader>
           <CardTitle>{isEdit ? 'Edit Profile' : 'Complete Your Profile'}</CardTitle>
-          <CardDescription>
-            {isEdit 
-              ? 'Update your technician profile information'
-              : 'Fill in your details to start receiving booking requests'}
-          </CardDescription>
+          <CardDescription>{isEdit ? 'Update your technician profile information' : 'Fill in your details to start receiving booking requests'}</CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Name</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <FormField control={form.control} name="name" render={({ field }) => (
+                <FormItem><FormLabel>Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
 
-              <FormField
-                control={form.control}
-                name="jobTypes"
-                render={() => (
-                  <FormItem>
-                    <FormLabel>Job Types</FormLabel>
+              <FormField control={form.control} name="jobTypes" render={() => (
+                <FormItem>
+                  <FormLabel>Job Types</FormLabel>
+                  <div className="space-y-2">
+                    {(['plumber', 'electrician', 'carpenter', 'maintenance', 'hvac', 'appliance_repair', 'handyman', 'carpentry'] as const).map((type) => (
+                      <FormField key={type} control={form.control} name="jobTypes" render={({ field }) => (
+                        <FormItem className="flex items-center space-x-2 space-y-0">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value?.includes(type)}
+                              onCheckedChange={(checked) => {
+                                const current = field.value || [];
+                                field.onChange(checked ? [...current, type] : current.filter((t) => t !== type));
+                              }}
+                            />
+                          </FormControl>
+                          <FormLabel className="font-normal capitalize">{type}</FormLabel>
+                        </FormItem>
+                      )} />
+                    ))}
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )} />
+
+              <FormField control={form.control} name="bio" render={({ field }) => (
+                <FormItem><FormLabel>Bio</FormLabel><FormControl><Textarea {...field} rows={4} /></FormControl><FormMessage /></FormItem>
+              )} />
+
+              <FormField control={form.control} name="tags" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Tags</FormLabel>
+                  <FormControl><MultiSelect options={COMMON_TAGS} selected={field.value || []} onChange={field.onChange} placeholder="Select tags..." /></FormControl>
+                  <FormDescription>Select relevant tags for your profile</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )} />
+
+              <FormField control={form.control} name="cities" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Serviceable Cities</FormLabel>
+                  <FormControl><MultiSelect options={POPULAR_US_CITIES} selected={field.value || []} onChange={field.onChange} placeholder="Select cities..." /></FormControl>
+                  <FormDescription>Select cities where you provide services</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )} />
+
+              <FormField control={form.control} name="photoUrl" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Photo (Optional)</FormLabel>
+                  <FormControl>
                     <div className="space-y-2">
-                      {(['plumber', 'electrician', 'carpenter', 'maintenance', 'hvac', 'appliance_repair', 'handyman', 'carpentry'] as const).map((type) => (
-                        <FormField
-                          key={type}
-                          control={form.control}
-                          name="jobTypes"
-                          render={({ field }) => (
-                            <FormItem className="flex items-center space-x-2 space-y-0">
-                              <FormControl>
-                                <Checkbox
-                                  checked={field.value?.includes(type)}
-                                  onCheckedChange={(checked) => {
-                                    const current = field.value || [];
-                                    field.onChange(
-                                      checked
-                                        ? [...current, type]
-                                        : current.filter((t) => t !== type)
-                                    );
-                                  }}
-                                />
-                              </FormControl>
-                              <FormLabel className="font-normal capitalize">{type}</FormLabel>
-                            </FormItem>
-                          )}
-                        />
-                      ))}
+                      {photoPreview ? (
+                        <div className="relative inline-block">
+                          <img src={photoPreview} alt="Preview" className="h-32 w-32 rounded-lg object-cover border" />
+                          <button type="button" onClick={() => { setPhotoFile(null); setPhotoPreview(null); field.onChange(undefined); }} className="absolute -top-2 -right-2 rounded-full bg-destructive text-destructive-foreground p-1 hover:bg-destructive/90">
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <Input type="file" accept="image/*" onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.size > 5 * 1024 * 1024) { toast.error('File size must be less than 5MB'); return; }
+                            setPhotoFile(file);
+                            const reader = new FileReader();
+                            reader.onloadend = () => setPhotoPreview(reader.result as string);
+                            reader.readAsDataURL(file);
+                          }
+                        }} className="cursor-pointer" />
+                      )}
+                      {uploadingPhoto && <p className="text-sm text-muted-foreground">Uploading photo...</p>}
                     </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                  </FormControl>
+                  <FormDescription>Upload a photo (max 5MB). JPG, PNG, or WebP formats.</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
-              <FormField
-                control={form.control}
-                name="bio"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Bio</FormLabel>
-                    <FormControl>
-                      <Textarea {...field} rows={4} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="tags"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Tags</FormLabel>
-                    <FormControl>
-                      <MultiSelect
-                        options={COMMON_TAGS}
-                        selected={field.value || []}
-                        onChange={field.onChange}
-                        placeholder="Select tags..."
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Select relevant tags for your profile
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="cities"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Serviceable Cities</FormLabel>
-                    <FormControl>
-                      <MultiSelect
-                        options={POPULAR_US_CITIES}
-                        selected={field.value || []}
-                        onChange={field.onChange}
-                        placeholder="Select cities..."
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Select cities where you provide services
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="photoUrl"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Photo (Optional)</FormLabel>
-                    <FormControl>
-                      <div className="space-y-2">
-                        {photoPreview ? (
-                          <div className="relative inline-block">
-                            <img
-                              src={photoPreview}
-                              alt="Preview"
-                              className="h-32 w-32 rounded-lg object-cover border"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPhotoFile(null);
-                                setPhotoPreview(null);
-                                field.onChange(undefined);
-                              }}
-                              className="absolute -top-2 -right-2 rounded-full bg-destructive text-destructive-foreground p-1 hover:bg-destructive/90"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <Input
-                              type="file"
-                              accept="image/*"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  if (file.size > 5 * 1024 * 1024) {
-                                    toast.error('File size must be less than 5MB');
-                                    return;
-                                  }
-                                  setPhotoFile(file);
-                                  const reader = new FileReader();
-                                  reader.onloadend = () => {
-                                    setPhotoPreview(reader.result as string);
-                                  };
-                                  reader.readAsDataURL(file);
-                                }
-                              }}
-                              className="cursor-pointer"
-                            />
-                          </div>
-                        )}
-                        {uploadingPhoto && (
-                          <p className="text-sm text-muted-foreground">Uploading photo...</p>
-                        )}
-                      </div>
-                    </FormControl>
-                    <FormDescription>
-                      Upload a photo (max 5MB). JPG, PNG, or WebP formats.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="isVisible"
-                render={({ field }) => (
-                  <FormItem className="flex items-center space-x-2 space-y-0">
-                    <FormControl>
-                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                    <FormLabel className="font-normal">Visible to clients</FormLabel>
-                  </FormItem>
-                )}
-              />
+              <FormField control={form.control} name="isVisible" render={({ field }) => (
+                <FormItem className="flex items-center space-x-2 space-y-0">
+                  <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                  <FormLabel className="font-normal">Visible to clients</FormLabel>
+                </FormItem>
+              )} />
 
               <div className="flex gap-2">
                 <Button type="submit" className="flex-1" disabled={submitting || uploadingPhoto}>
-                  {submitting || uploadingPhoto 
-                    ? (isEdit ? 'Updating...' : 'Creating...') 
-                    : (isEdit ? 'Update Profile' : 'Create Profile')}
+                  {submitting || uploadingPhoto ? (isEdit ? 'Updating...' : 'Creating...') : (isEdit ? 'Update Profile' : 'Create Profile')}
                 </Button>
-                {isEdit && (
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={() => router.push('/technician/dashboard')}
-                  >
-                    Cancel
-                  </Button>
-                )}
+                {isEdit && <Button type="button" variant="outline" onClick={() => router.push('/technician/dashboard')}>Cancel</Button>}
               </div>
             </form>
           </Form>

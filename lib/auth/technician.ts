@@ -1,37 +1,23 @@
-import { getAdminAuth } from '@/lib/firebase/admin';
-import { NextRequest } from 'next/server';
+import { currentUser } from '@clerk/nextjs/server';
 
-export async function getTechnicianUser(request: NextRequest) {
+export async function getTechnicianUser() {
   try {
-    const adminAuth = getAdminAuth();
-    if (!adminAuth) {
-      return null;
-    }
+    const user = await currentUser();
+    if (!user) return null;
 
-    // Get Authorization header
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return null;
-    }
-
-    const idToken = authHeader.substring(7); // Remove 'Bearer ' prefix
-
-    // Verify the ID token
-    const decodedToken = await adminAuth.verifyIdToken(idToken);
-    
-    return decodedToken;
-  } catch (error) {
-    console.error('Error verifying technician token:', error);
+    return {
+      uid: user.id,
+      email: user.primaryEmailAddress?.emailAddress || '',
+    };
+  } catch {
     return null;
   }
 }
 
-export async function requireTechnician(request: NextRequest) {
-  const technicianUser = await getTechnicianUser(request);
-  
+export async function requireTechnician() {
+  const technicianUser = await getTechnicianUser();
   if (!technicianUser) {
     throw new Error('Unauthorized: Technician access required');
   }
-
   return technicianUser;
 }

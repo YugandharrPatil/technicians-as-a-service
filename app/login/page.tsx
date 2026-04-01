@@ -1,110 +1,65 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { SignIn, useUser } from '@clerk/nextjs';
 import { useAuth } from '@/lib/auth/context';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Chrome } from 'lucide-react';
-import { db } from '@/lib/firebase/client';
-import { doc, getDoc } from 'firebase/firestore';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [checking, setChecking] = useState(true);
-  const { signInWithGoogle, user, loading: authLoading } = useAuth();
+  const { user: clerkUser, isLoaded } = useUser();
+  const { syncUser } = useAuth();
   const router = useRouter();
 
-  // Check if user is already logged in and redirect if so
   useEffect(() => {
-    async function checkAuthStatus() {
-      if (authLoading) return;
-      
-      if (!user || !db) {
-        setChecking(false);
-        return;
-      }
+    async function handlePostSignIn() {
+      if (!isLoaded || !clerkUser) return;
 
-      try {
-        const userRef = doc(db, 'users', user.uid);
-        const userSnap = await getDoc(userRef);
-        
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-          const userRoles = userData.roles || (userData.role ? [userData.role] : []);
-          
-          // If user has client role (either current or in roles array), redirect to technicians page
-          if (userData.role === 'client' || userRoles.includes('client')) {
-            router.push('/technicians');
-            return;
-          } else if (userData.role === 'technician' || userRoles.includes('technician')) {
-            // User has technician role but logged in via client login - redirect to technician login
-            // They can then log in as technician which will set their current role
-            router.push('/technician/login');
-            return;
-          }
+      // Sync user with 'client' role
+      await syncUser('client');
+
+      // Check user roles and redirect
+      const supabase = getSupabaseBrowserClient();
+      const { data: userData } = await supabase
+        .from('taas_users')
+        .select('*')
+        .eq('id', clerkUser.id)
+        .single();
+
+      if (userData) {
+        const userRoles: string[] = userData.roles || (userData.role ? [userData.role] : []);
+        if (userData.role === 'client' || userRoles.includes('client')) {
+          router.push('/technicians');
+        } else if (userData.role === 'technician' || userRoles.includes('technician')) {
+          router.push('/technician/login');
         }
-      } catch (err) {
-        console.error('Error checking auth status:', err);
+      } else {
+        router.push('/technicians');
       }
-      
-      setChecking(false);
     }
 
-    checkAuthStatus();
-  }, [user, authLoading, router]);
+    handlePostSignIn();
+  }, [clerkUser, isLoaded]);
 
-  const handleGoogleSignIn = async () => {
-    setError('');
-    setLoading(true);
-
-    try {
-      await signInWithGoogle('client');
-      // Wait a bit for auth state to update
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      // Redirect to technicians page after successful login
-      router.push('/technicians');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign in with Google');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Show loading while checking auth status
-  if (authLoading || checking) {
+  if (isLoaded && clerkUser) {
     return (
       <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-muted-foreground">Redirecting...</div>
       </div>
     );
   }
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Client Sign In</CardTitle>
-          <CardDescription>Sign in with your Google account to browse and book technicians</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {error && (
-              <div className="text-sm text-destructive">{error}</div>
-            )}
-            <Button 
-              type="button" 
-              className="w-full" 
-              disabled={loading}
-              onClick={handleGoogleSignIn}
-            >
-              <Chrome className="mr-2 h-4 w-4" />
-              {loading ? 'Signing in...' : 'Sign in with Google'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <SignIn
+        routing="hash"
+        appearance={{
+          elements: {
+            rootBox: 'mx-auto',
+            card: 'shadow-lg',
+          },
+        }}
+      />
     </div>
   );
 }

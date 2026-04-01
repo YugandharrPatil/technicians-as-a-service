@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminDb } from '@/lib/firebase/admin';
 import { requireAdmin } from '@/lib/auth/admin';
+import { getSupabaseServiceClient } from '@/lib/supabase/server';
 import { generateEmbedding, buildEmbeddingText } from '@/lib/embeddings';
 import { getPineconeIndex } from '@/lib/pinecone';
 import { z } from 'zod';
-import type { Technician } from '@/lib/types/firestore';
 
 const technicianUpdateSchema = z.object({
   name: z.string().min(1).optional(),
@@ -16,178 +15,90 @@ const technicianUpdateSchema = z.object({
   photoUrl: z.string().optional(),
 });
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requireAdmin();
-
-    const adminDb = getAdminDb();
-    if (!adminDb) {
-      return NextResponse.json(
-        { error: 'Database not initialized' },
-        { status: 500 }
-      );
-    }
-
+    const supabase = getSupabaseServiceClient();
     const { id } = await params;
     const body = await request.json();
     const data = technicianUpdateSchema.parse(body);
 
-    const technicianRef = adminDb.collection('technicians').doc(id);
-    const existingDoc = await technicianRef.get();
+    const { data: existing, error: fetchError } = await supabase.from('taas_technicians').select('*').eq('id', id).single();
+    if (fetchError || !existing) return NextResponse.json({ error: 'Technician not found' }, { status: 404 });
 
-    if (!existingDoc.exists) {
-      return NextResponse.json(
-        { error: 'Technician not found' },
-        { status: 404 }
-      );
-    }
-
-    const existingData = existingDoc.data() as Technician;
-    const updates: Record<string, unknown> = {
-      updatedAt: new Date(),
-    };
-
-    // Update fields
+    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (data.name !== undefined) updates.name = data.name;
-    if (data.jobTypes !== undefined) updates.jobTypes = data.jobTypes;
+    if (data.jobTypes !== undefined) updates.job_types = data.jobTypes;
     if (data.bio !== undefined) updates.bio = data.bio;
     if (data.tags !== undefined) updates.tags = data.tags;
     if (data.cities !== undefined) updates.cities = data.cities;
-    if (data.isVisible !== undefined) updates.isVisible = data.isVisible;
-    if (data.photoUrl !== undefined) updates.photoUrl = data.photoUrl;
+    if (data.isVisible !== undefined) updates.is_visible = data.isVisible;
+    if (data.photoUrl !== undefined) updates.photo_url = data.photoUrl;
 
-    await technicianRef.update(updates);
+    await supabase.from('taas_technicians').update(updates).eq('id', id);
 
-    // Regenerate embedding if any relevant fields changed
     const fieldsChanged = data.name || data.jobTypes || data.bio || data.tags || data.cities;
     if (fieldsChanged) {
       try {
-        const finalData = { ...existingData, ...updates } as Technician;
+        const finalData = { ...existing, ...updates };
         const embeddingText = buildEmbeddingText({
-          name: finalData.name,
-          jobTypes: finalData.jobTypes,
-          bio: finalData.bio,
-          tags: finalData.tags,
-          cities: finalData.cities,
+          name: finalData.name as string,
+          jobTypes: (finalData.job_types || finalData.jobTypes) as string[],
+          bio: finalData.bio as string,
+          tags: finalData.tags as string[],
+          cities: finalData.cities as string[],
         });
-
         const embedding = await generateEmbedding(embeddingText);
         const index = await getPineconeIndex();
         const pineconeId = `technician:${id}`;
-
-        await index.upsert([
-          {
-            id: pineconeId,
-            values: embedding,
-            metadata: {
-              jobTypes: finalData.jobTypes,
-              tags: finalData.tags,
-              cities: finalData.cities,
-              isVisible: finalData.isVisible,
-              technicianId: id,
-            },
-          },
-        ]);
-
-        // Update embedding metadata
-        await technicianRef.update({
-          'embedding.pineconeId': pineconeId,
-          'embedding.updatedAt': new Date(),
-        });
+        await index.upsert([{
+          id: pineconeId, values: embedding,
+          metadata: { jobTypes: finalData.job_types || finalData.jobTypes, tags: finalData.tags, cities: finalData.cities, isVisible: finalData.is_visible ?? true, technicianId: id },
+        }]);
+        const embeddingMeta = existing.embedding || {};
+        await supabase.from('taas_technicians').update({
+          embedding: { ...embeddingMeta, pineconeId, updatedAt: new Date().toISOString() },
+        }).eq('id', id);
       } catch (embeddingError) {
         console.error('Error updating embedding:', embeddingError);
-        // Continue even if embedding fails
       }
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Validation error', details: error.issues },
-        { status: 400 }
-      );
-    }
-
+    if (error instanceof z.ZodError) return NextResponse.json({ error: 'Validation error', details: error.issues }, { status: 400 });
     console.error('Error updating technician:', error);
-    return NextResponse.json(
-      { error: 'Failed to update technician' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to update technician' }, { status: 500 });
   }
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requireAdmin();
-
-    const adminDb = getAdminDb();
-    if (!adminDb) {
-      return NextResponse.json(
-        { error: 'Database not initialized' },
-        { status: 500 }
-      );
-    }
-
+    const supabase = getSupabaseServiceClient();
     const { id } = await params;
-    const doc = await adminDb.collection('technicians').doc(id).get();
-
-    if (!doc.exists) {
-      return NextResponse.json(
-        { error: 'Technician not found' },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({ id: doc.id, ...doc.data() });
+    const { data, error } = await supabase.from('taas_technicians').select('*').eq('id', id).single();
+    if (error || !data) return NextResponse.json({ error: 'Technician not found' }, { status: 404 });
+    return NextResponse.json({ id: data.id, ...data });
   } catch (error) {
     console.error('Error fetching technician:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch technician' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch technician' }, { status: 500 });
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await requireAdmin();
-
-    const adminDb = getAdminDb();
-    if (!adminDb) {
-      return NextResponse.json(
-        { error: 'Database not initialized' },
-        { status: 500 }
-      );
-    }
-
+    const supabase = getSupabaseServiceClient();
     const { id } = await params;
-    await adminDb.collection('technicians').doc(id).delete();
-
-    // Optionally delete from Pinecone
+    await supabase.from('taas_technicians').delete().eq('id', id);
     try {
       const index = await getPineconeIndex();
       await index.deleteOne(`technician:${id}`);
-    } catch (error) {
-      console.error('Error deleting from Pinecone:', error);
-      // Continue even if Pinecone deletion fails
-    }
-
+    } catch (error) { console.error('Error deleting from Pinecone:', error); }
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting technician:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete technician' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to delete technician' }, { status: 500 });
   }
 }

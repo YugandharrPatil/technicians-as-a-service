@@ -1,21 +1,24 @@
 import { useQuery } from '@tanstack/react-query';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase/client';
-import type { Technician } from '@/lib/types/firestore';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import type { Technician } from '@/lib/types/database';
 
 export function useTechnician(id: string) {
   return useQuery({
     queryKey: ['technician', id],
     queryFn: async () => {
-      if (!db) throw new Error('Database not initialized');
-      const docRef = doc(db, 'technicians', id);
-      const docSnap = await getDoc(docRef);
+      const supabase = getSupabaseBrowserClient();
 
-      if (!docSnap.exists()) {
+      const { data, error } = await supabase
+        .from('taas_technicians')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error || !data) {
         throw new Error('Technician not found');
       }
 
-      return { ...docSnap.data() as Technician, id: docSnap.id } as Technician & { id: string };
+      return data as Technician;
     },
     enabled: !!id,
   });

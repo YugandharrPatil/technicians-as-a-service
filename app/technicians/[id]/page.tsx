@@ -73,9 +73,9 @@ export default function TechnicianProfilePage({
           <Card>
             <CardHeader>
               <div className="flex items-start gap-4">
-                {technician.photoUrl ? (
+                {technician.photo_url ? (
                   <img
-                    src={technician.photoUrl}
+                    src={technician.photo_url}
                     alt={technician.name}
                     className="h-20 w-20 rounded-lg object-cover border"
                   />
@@ -97,7 +97,7 @@ export default function TechnicianProfilePage({
               <div>
                 <h3 className="mb-3 text-lg font-semibold">Service Types</h3>
                 <div className="flex flex-wrap gap-2">
-                  {technician.jobTypes.map((type) => (
+                  {technician.job_types.map((type) => (
                     <Badge key={type} variant="secondary" className="text-sm py-1 px-3">
                       {type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
                     </Badge>
@@ -142,18 +142,18 @@ export default function TechnicianProfilePage({
               )}
 
               {/* Rating */}
-              {technician.ratingAvg ? (
+              {technician.rating_avg ? (
                 <>
                   <div>
                     <h3 className="mb-3 text-lg font-semibold">Rating & Reviews</h3>
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-1">
                         <Star className="h-6 w-6 fill-yellow-400 text-yellow-400" />
-                        <span className="text-2xl font-bold">{technician.ratingAvg.toFixed(1)}</span>
+                        <span className="text-2xl font-bold">{technician.rating_avg.toFixed(1)}</span>
                       </div>
-                      {technician.ratingCount && (
+                      {technician.rating_count && (
                         <span className="text-muted-foreground">
-                          Based on {technician.ratingCount} {technician.ratingCount === 1 ? 'review' : 'reviews'}
+                          Based on {technician.rating_count} {technician.rating_count === 1 ? 'review' : 'reviews'}
                         </span>
                       )}
                     </div>
@@ -174,7 +174,7 @@ export default function TechnicianProfilePage({
               <div>
                 <h3 className="mb-3 text-lg font-semibold">Availability</h3>
                 <div className="flex items-center gap-2">
-                  {technician.isVisible ? (
+                  {technician.is_visible ? (
                     <>
                       <CheckCircle2 className="h-5 w-5 text-green-600" />
                       <span className="text-green-600 font-medium">Available for bookings</span>
@@ -189,20 +189,20 @@ export default function TechnicianProfilePage({
               </div>
 
               {/* Metadata */}
-              {(technician.createdAt || technician.updatedAt) && (
+              {(technician.created_at || technician.updated_at) && (
                 <>
                   <Separator />
                   <div className="space-y-2 text-sm text-muted-foreground">
-                    {technician.createdAt && (
+                    {technician.created_at && (
                       <div className="flex items-center gap-2">
                         <Calendar className="h-4 w-4" />
-                        <span>Member since {formatDate(technician.createdAt)}</span>
+                        <span>Member since {formatDate(technician.created_at)}</span>
                       </div>
                     )}
-                    {technician.updatedAt && (
+                    {technician.updated_at && (
                       <div className="flex items-center gap-2">
                         <Calendar className="h-4 w-4" />
-                        <span>Profile updated {formatDate(technician.updatedAt)}</span>
+                        <span>Profile updated {formatDate(technician.updated_at)}</span>
                       </div>
                     )}
                   </div>
@@ -237,14 +237,14 @@ export default function TechnicianProfilePage({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {technician.ratingAvg && (
+              {technician.rating_avg && (
                 <div className="flex items-center gap-2 rounded-lg bg-muted p-3">
                   <Star className="h-5 w-5 fill-yellow-400 text-yellow-400" />
                   <div>
-                    <div className="font-semibold">{technician.ratingAvg.toFixed(1)} Rating</div>
-                    {technician.ratingCount && (
+                    <div className="font-semibold">{technician.rating_avg.toFixed(1)} Rating</div>
+                    {technician.rating_count && (
                       <div className="text-xs text-muted-foreground">
-                        {technician.ratingCount} {technician.ratingCount === 1 ? 'review' : 'reviews'}
+                        {technician.rating_count} {technician.rating_count === 1 ? 'review' : 'reviews'}
                       </div>
                     )}
                   </div>

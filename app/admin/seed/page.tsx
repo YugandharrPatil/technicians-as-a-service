@@ -43,7 +43,7 @@ function SeedContent() {
         <CardHeader>
           <CardTitle>Seed Dummy Technicians (Optional)</CardTitle>
           <CardDescription>
-            Helper to create sample technician data. Technicians should be created manually in Firestore or through the admin panel.
+            Helper to create sample technician data. Technicians should be created manually in the database or through the admin panel.
           </CardDescription>
         </CardHeader>
         <CardContent>

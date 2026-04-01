@@ -2,10 +2,9 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase/client';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/auth/context';
-import type { Technician } from '@/lib/types/firestore';
+import type { Technician } from '@/lib/types/database';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useForm } from 'react-hook-form';
@@ -38,9 +37,7 @@ const bookingSchema = z.object({
   serviceType: z.string().min(1, 'Service type is required'),
   problemDescription: z.string().min(10, 'Please provide a detailed description'),
   address: z.string().min(5, 'Address is required'),
-  preferredDate: z.date({
-    message: 'Date is required',
-  }),
+  preferredDate: z.date({ message: 'Date is required' }),
   preferredTime: z.string().min(1, 'Time is required'),
 });
 
@@ -51,7 +48,7 @@ function CreateBookingContent() {
   const searchParams = useSearchParams();
   const technicianId = searchParams.get('technicianId');
   const { user } = useAuth();
-  const [technician, setTechnician] = useState<(Technician & { id: string }) | null>(null);
+  const [technician, setTechnician] = useState<Technician | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -71,7 +68,6 @@ function CreateBookingContent() {
       router.push('/login');
       return;
     }
-
     if (technicianId) {
       loadTechnician();
     }
@@ -79,18 +75,19 @@ function CreateBookingContent() {
 
   async function loadTechnician() {
     if (!technicianId) return;
-
-    if (!db) return;
     try {
-      const docRef = doc(db, 'technicians', technicianId);
-      const docSnap = await getDoc(docRef);
+      const supabase = getSupabaseBrowserClient();
+      const { data } = await supabase
+        .from('taas_technicians')
+        .select('*')
+        .eq('id', technicianId)
+        .single();
 
-      if (docSnap.exists()) {
-        const tech = { ...docSnap.data() as Technician, id: docSnap.id };
+      if (data) {
+        const tech = data as Technician;
         setTechnician(tech);
-        // Pre-fill service type if technician has only one job type
-        if (tech.jobTypes.length === 1) {
-          form.setValue('serviceType', tech.jobTypes[0]);
+        if (tech.job_types.length === 1) {
+          form.setValue('serviceType', tech.job_types[0]);
         }
       }
     } catch (error) {
@@ -105,26 +102,23 @@ function CreateBookingContent() {
 
     setSubmitting(true);
     try {
-      if (!db) return;
-      // Format date as YYYY-MM-DD for combining with time
+      const supabase = getSupabaseBrowserClient();
       const dateStr = format(data.preferredDate, 'yyyy-MM-dd');
       const preferredDateTime = new Date(`${dateStr}T${data.preferredTime}`);
 
-      await addDoc(collection(db, 'bookings'), {
-        clientId: user.uid,
-        technicianId,
-        serviceType: data.serviceType,
-        problemDescription: data.problemDescription,
+      const { error } = await supabase.from('taas_bookings').insert({
+        client_id: user.id,
+        technician_id: technicianId,
+        service_type: data.serviceType,
+        problem_description: data.problemDescription,
         address: data.address,
-        preferredDateTime,
+        preferred_date_time: preferredDateTime.toISOString(),
         status: 'requested',
-        lead: {
-          contacted: false,
-          closed: false,
-        },
-        createdAt: new Date(),
+        lead_contacted: false,
+        lead_closed: false,
       });
 
+      if (error) throw error;
       router.push('/account/bookings');
     } catch (error) {
       console.error('Error creating booking:', error);
@@ -134,13 +128,8 @@ function CreateBookingContent() {
     }
   }
 
-  if (!user) {
-    return null;
-  }
-
-  if (loading) {
-    return <div className="container mx-auto p-4">Loading...</div>;
-  }
+  if (!user) return null;
+  if (loading) return <div className="container mx-auto p-4">Loading...</div>;
 
   return (
     <div className="container mx-auto max-w-2xl p-4">
@@ -152,10 +141,8 @@ function CreateBookingContent() {
               <>
                 Booking with <strong>{technician.name}</strong>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {technician.jobTypes.map((type) => (
-                    <Badge key={type} variant="secondary">
-                      {type}
-                    </Badge>
+                  {technician.job_types.map((type) => (
+                    <Badge key={type} variant="secondary">{type}</Badge>
                   ))}
                 </div>
               </>
@@ -165,116 +152,56 @@ function CreateBookingContent() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="serviceType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Service Type</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="e.g., Plumbing repair" />
-                    </FormControl>
-                    <FormDescription>
-                      The type of service you need
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="problemDescription"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Problem Description</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        {...field}
-                        placeholder="Describe your problem in detail..."
-                        rows={5}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="address"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Service Address</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="123 Main St, City, State" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
+              <FormField control={form.control} name="serviceType" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Service Type</FormLabel>
+                  <FormControl><Input {...field} placeholder="e.g., Plumbing repair" /></FormControl>
+                  <FormDescription>The type of service you need</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="problemDescription" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Problem Description</FormLabel>
+                  <FormControl><Textarea {...field} placeholder="Describe your problem in detail..." rows={5} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="address" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Service Address</FormLabel>
+                  <FormControl><Input {...field} placeholder="123 Main St, City, State" /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
               <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="preferredDate"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Preferred Date</FormLabel>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant="outline"
-                              className={cn(
-                                'w-full pl-3 text-left font-normal',
-                                !field.value && 'text-muted-foreground'
-                              )}
-                            >
-                              {field.value ? (
-                                format(field.value, 'PPP')
-                              ) : (
-                                <span>Pick a date</span>
-                              )}
-                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={field.value}
-                            onSelect={field.onChange}
-                            disabled={(date) =>
-                              date < new Date(new Date().setHours(0, 0, 0, 0))
-                            }
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="preferredTime"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Preferred Time</FormLabel>
-                      <FormControl>
-                        <TimePicker
-                          value={field.value}
-                          onChange={field.onChange}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <FormField control={form.control} name="preferredDate" render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>Preferred Date</FormLabel>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button variant="outline" className={cn('w-full pl-3 text-left font-normal', !field.value && 'text-muted-foreground')}>
+                            {field.value ? format(field.value, 'PPP') : <span>Pick a date</span>}
+                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar mode="single" selected={field.value} onSelect={field.onChange} disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))} initialFocus />
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="preferredTime" render={({ field }) => (
+                  <FormItem className="flex flex-col">
+                    <FormLabel>Preferred Time</FormLabel>
+                    <FormControl><TimePicker value={field.value} onChange={field.onChange} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
               </div>
-
               <Button type="submit" className="w-full" disabled={submitting}>
                 {submitting ? 'Creating Booking...' : 'Create Booking'}
               </Button>

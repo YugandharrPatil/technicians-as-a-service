@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { AdminGate } from '@/components/auth/admin-gate';
-import type { Technician } from '@/lib/types/firestore';
+import type { Technician } from '@/lib/types/database';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -68,7 +68,7 @@ function AdminTechniciansContent() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>{tech.name}</CardTitle>
-                  {tech.isVisible ? (
+                  {tech.is_visible ? (
                     <Badge variant="default">Visible</Badge>
                   ) : (
                     <Badge variant="secondary">Hidden</Badge>
@@ -79,8 +79,8 @@ function AdminTechniciansContent() {
               <CardContent>
                 <div className="mb-4 space-y-2">
                   <div className="flex flex-wrap gap-2">
-                    {Array.isArray(tech.jobTypes) && tech.jobTypes.length > 0 ? (
-                      tech.jobTypes.map((type) => (
+                    {Array.isArray(tech.job_types) && tech.job_types.length > 0 ? (
+                      tech.job_types.map((type: string) => (
                         <Badge key={type} variant="outline">
                           {type}
                         </Badge>

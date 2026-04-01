@@ -23,9 +23,8 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { toast } from 'sonner';
-import { collection, query, where, getDocs, addDoc, doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase/client';
-import type { Review, Booking, Technician, User } from '@/lib/types/firestore';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import type { Review, Booking, Technician, User } from '@/lib/types/database';
 
 const reviewSchema = z.object({
   stars: z.number().min(1).max(5),
@@ -37,7 +36,7 @@ type ReviewFormValues = z.infer<typeof reviewSchema>;
 type ReviewDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  booking: Booking & { id: string };
+  booking: Booking;
   reviewerId: string;
   revieweeId: string;
   revieweeName: string;
@@ -56,7 +55,7 @@ export function ReviewDialog({
   onReviewSubmitted,
 }: ReviewDialogProps) {
   const [submitting, setSubmitting] = useState(false);
-  const [existingReview, setExistingReview] = useState<(Review & { id: string }) | null>(null);
+  const [existingReview, setExistingReview] = useState<Review | null>(null);
 
   const form = useForm<ReviewFormValues>({
     resolver: zodResolver(reviewSchema),
@@ -66,180 +65,119 @@ export function ReviewDialog({
     },
   });
 
-  // Check for existing review when dialog opens
   useEffect(() => {
-    if (open && db) {
+    if (open) {
       checkExistingReview();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, booking.id, reviewerId, revieweeId]);
 
   async function checkExistingReview() {
-    if (!db) return;
-
     try {
-      const reviewQuery = query(
-        collection(db, 'reviews'),
-        where('bookingId', '==', booking.id),
-        where('reviewerId', '==', reviewerId),
-        where('revieweeId', '==', revieweeId)
-      );
-      const reviewSnap = await getDocs(reviewQuery);
-      
-      if (!reviewSnap.empty) {
-        const reviewDoc = reviewSnap.docs[0];
-        const reviewData = { ...reviewDoc.data() as Review, id: reviewDoc.id };
-        setExistingReview(reviewData);
+      const supabase = getSupabaseBrowserClient();
+      const { data } = await supabase
+        .from('taas_reviews')
+        .select('*')
+        .eq('booking_id', booking.id)
+        .eq('reviewer_id', reviewerId)
+        .eq('reviewee_id', revieweeId)
+        .single();
+
+      if (data) {
+        setExistingReview(data as Review);
         form.reset({
-          stars: reviewData.stars,
-          text: reviewData.text || '',
+          stars: data.stars,
+          text: data.text || '',
         });
       } else {
         setExistingReview(null);
-        form.reset({
-          stars: 5,
-          text: '',
-        });
+        form.reset({ stars: 5, text: '' });
       }
-    } catch (error) {
-      console.error('Error checking existing review:', error);
+    } catch {
+      setExistingReview(null);
+      form.reset({ stars: 5, text: '' });
     }
   }
 
   async function updateRatings(revieweeId: string, revieweeType: 'client' | 'technician', newRating: number, oldRating?: number) {
-    if (!db) return;
-
     try {
+      const supabase = getSupabaseBrowserClient();
+
+      // Get all reviews for this reviewee
+      const { data: allReviews } = await supabase
+        .from('taas_reviews')
+        .select('stars')
+        .eq('reviewee_id', revieweeId);
+
+      let totalStars = 0;
+      let reviewCount = (allReviews || []).length;
+
+      (allReviews || []).forEach((r: any) => {
+        totalStars += r.stars;
+      });
+
+      if (oldRating !== undefined) {
+        totalStars = totalStars - oldRating + newRating;
+      } else {
+        totalStars += newRating;
+        reviewCount++;
+      }
+
+      const ratingAvg = reviewCount > 0 ? totalStars / reviewCount : 0;
+      const roundedAvg = Math.round(ratingAvg * 10) / 10;
+
       if (revieweeType === 'technician') {
-        // Update technician rating - revieweeId is the technician's userId
-        const techniciansQuery = query(
-          collection(db, 'technicians'),
-          where('userId', '==', revieweeId)
-        );
-        const techniciansSnapshot = await getDocs(techniciansQuery);
-        
-        if (!techniciansSnapshot.empty) {
-          const technicianDoc = techniciansSnapshot.docs[0];
-          const technicianRef = doc(db, 'technicians', technicianDoc.id);
-          
-          // Get all reviews for this technician (by userId)
-          const allReviewsQuery = query(
-            collection(db, 'reviews'),
-            where('revieweeId', '==', revieweeId)
-          );
-          const allReviewsSnap = await getDocs(allReviewsQuery);
-          
-          let totalStars = 0;
-          let reviewCount = allReviewsSnap.size;
-          
-          allReviewsSnap.forEach((reviewDoc) => {
-            const reviewData = reviewDoc.data() as Review;
-            totalStars += reviewData.stars;
-          });
-          
-          // Adjust for update: subtract old rating if updating, then add new rating
-          if (oldRating !== undefined) {
-            totalStars = totalStars - oldRating + newRating;
-          } else {
-            // New review: add the new rating
-            totalStars += newRating;
-            reviewCount++;
-          }
-          
-          const ratingAvg = reviewCount > 0 ? totalStars / reviewCount : 0;
-          
-          await updateDoc(technicianRef, {
-            ratingAvg: Math.round(ratingAvg * 10) / 10, // Round to 1 decimal
-            ratingCount: reviewCount,
-          });
+        const { data: tech } = await supabase
+          .from('taas_technicians')
+          .select('id')
+          .eq('user_id', revieweeId)
+          .single();
+
+        if (tech) {
+          await supabase
+            .from('taas_technicians')
+            .update({ rating_avg: roundedAvg, rating_count: reviewCount })
+            .eq('id', tech.id);
         }
       } else {
-        // Update user rating (for clients) - revieweeId is the clientId
-        const userRef = doc(db, 'users', revieweeId);
-        const userSnap = await getDoc(userRef);
-        
-        if (userSnap.exists()) {
-          // Get all reviews for this user
-          const allReviewsQuery = query(
-            collection(db, 'reviews'),
-            where('revieweeId', '==', revieweeId)
-          );
-          const allReviewsSnap = await getDocs(allReviewsQuery);
-          
-          let totalStars = 0;
-          let reviewCount = allReviewsSnap.size;
-          
-          allReviewsSnap.forEach((reviewDoc) => {
-            const reviewData = reviewDoc.data() as Review;
-            totalStars += reviewData.stars;
-          });
-          
-          // Adjust for update: subtract old rating if updating, then add new rating
-          if (oldRating !== undefined) {
-            totalStars = totalStars - oldRating + newRating;
-          } else {
-            // New review: add the new rating
-            totalStars += newRating;
-            reviewCount++;
-          }
-          
-          const ratingAvg = reviewCount > 0 ? totalStars / reviewCount : 0;
-          
-          await updateDoc(userRef, {
-            ratingAvg: Math.round(ratingAvg * 10) / 10, // Round to 1 decimal
-            ratingCount: reviewCount,
-          });
-        }
+        await supabase
+          .from('taas_users')
+          .update({ rating_avg: roundedAvg, rating_count: reviewCount })
+          .eq('id', revieweeId);
       }
     } catch (error) {
       console.error('Error updating ratings:', error);
-      // Don't throw - rating update failure shouldn't block review submission
     }
   }
 
   async function onSubmit(data: ReviewFormValues) {
-    if (!db) return;
-
     setSubmitting(true);
     try {
-      const reviewData: Omit<Review, 'createdAt'> & { createdAt: Date } = {
-        bookingId: booking.id,
-        clientId: booking.clientId,
-        technicianId: booking.technicianId,
-        reviewerId,
-        revieweeId,
-        stars: data.stars,
-        text: data.text || '',
-        createdAt: new Date(),
-      };
+      const supabase = getSupabaseBrowserClient();
 
       if (existingReview) {
-        // Update existing review
-        const reviewRef = doc(db, 'reviews', existingReview.id);
         const oldRating = existingReview.stars;
-        
-        await updateDoc(reviewRef, {
+        await supabase
+          .from('taas_reviews')
+          .update({ stars: data.stars, text: data.text || '' })
+          .eq('id', existingReview.id);
+
+        await updateRatings(revieweeId, revieweeType, data.stars, oldRating);
+        toast.success('Review updated successfully!');
+      } else {
+        await supabase.from('taas_reviews').insert({
+          booking_id: booking.id,
+          client_id: booking.client_id,
+          technician_id: booking.technician_id,
+          reviewer_id: reviewerId,
+          reviewee_id: revieweeId,
           stars: data.stars,
           text: data.text || '',
         });
 
-        // Update ratings with old rating for proper recalculation
-        await updateRatings(revieweeId, revieweeType, data.stars, oldRating);
-
-        toast.success('Review updated successfully!');
-        setExistingReview({ ...reviewData, id: existingReview.id } as Review & { id: string });
-      } else {
-        // Create new review document
-        const newReviewRef = await addDoc(collection(db, 'reviews'), reviewData);
-
-        // Update ratings (new review)
         await updateRatings(revieweeId, revieweeType, data.stars);
-
         toast.success('Review submitted successfully!');
-        setExistingReview({ ...reviewData, id: newReviewRef.id } as Review & { id: string });
       }
 
-      // Notify parent that review was submitted
       onReviewSubmitted?.();
       onOpenChange(false);
     } catch (error) {
