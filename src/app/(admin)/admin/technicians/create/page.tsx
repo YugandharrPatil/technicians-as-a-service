@@ -1,5 +1,6 @@
 "use client";
 
+import { createTechnician } from "@/actions/admin";
 import { AdminGate } from "@/components/auth/admin-gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth/context";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Upload, X } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -121,6 +123,7 @@ export default function CreateTechnicianPage() {
 function CreateTechnicianContent() {
 	const router = useRouter();
 	const { user } = useAuth();
+	const queryClient = useQueryClient();
 	const [submitting, setSubmitting] = useState(false);
 	const [uploadingPhoto, setUploadingPhoto] = useState(false);
 	const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -177,21 +180,16 @@ function CreateTechnicianContent() {
 				}
 			}
 
-			const response = await fetch("/api/admin/technicians", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					...data,
-					photoUrl,
-				}),
+			const result = await createTechnician({
+				...data,
+				photoUrl,
 			});
 
-			if (response.ok) {
-				const result = await response.json();
+			if (result.success && result.id) {
+				queryClient.invalidateQueries({ queryKey: ["admin-technicians"] });
 				router.push(`/admin/technicians/${result.id}`);
 			} else {
-				const error = await response.json();
-				alert(error.error || "Failed to create technician");
+				alert(result.error || "Failed to create technician");
 			}
 		} catch (error) {
 			console.error("Error creating technician:", error);

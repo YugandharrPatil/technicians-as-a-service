@@ -1,5 +1,6 @@
 "use client";
 
+import { updateTechnician } from "@/actions/admin";
 import { AdminGate } from "@/components/auth/admin-gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,9 +9,10 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Textarea } from "@/components/ui/textarea";
+import { useAdminTechnician } from "@/lib/hooks/use-admin-technicians";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import type { Technician } from "@/lib/types/database";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -121,8 +123,8 @@ export default function EditTechnicianPage({ params }: { params: Promise<{ id: s
 
 function EditTechnicianContent({ id }: { id: string }) {
 	const router = useRouter();
-	const [technician, setTechnician] = useState<(Technician & { id: string }) | null>(null);
-	const [loading, setLoading] = useState(true);
+	const queryClient = useQueryClient();
+	const { data: technician, isLoading } = useAdminTechnician(id);
 	const [submitting, setSubmitting] = useState(false);
 	const [uploadingPhoto, setUploadingPhoto] = useState(false);
 	const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -142,34 +144,21 @@ function EditTechnicianContent({ id }: { id: string }) {
 	});
 
 	useEffect(() => {
-		loadTechnician();
-	}, [id]);
-
-	async function loadTechnician() {
-		try {
-			const response = await fetch(`/api/admin/technicians/${id}`);
-			if (response.ok) {
-				const data = await response.json();
-				setTechnician(data);
-				form.reset({
-					name: data.name,
-					jobTypes: data.job_types || data.jobTypes,
-					bio: data.bio,
-					tags: Array.isArray(data.tags) ? data.tags : [],
-					cities: Array.isArray(data.cities) ? data.cities : [],
-					isVisible: data.is_visible ?? data.isVisible,
-					photoUrl: data.photo_url || data.photoUrl || undefined,
-				});
-				if (data.photo_url || data.photoUrl) {
-					setPhotoPreview(data.photo_url || data.photoUrl);
-				}
+		if (technician) {
+			form.reset({
+				name: technician.name,
+				jobTypes: technician.job_types || [],
+				bio: technician.bio,
+				tags: Array.isArray(technician.tags) ? technician.tags : [],
+				cities: Array.isArray(technician.cities) ? technician.cities : [],
+				isVisible: technician.is_visible ?? true,
+				photoUrl: technician.photo_url || undefined,
+			});
+			if (technician.photo_url) {
+				setPhotoPreview(technician.photo_url);
 			}
-		} catch (error) {
-			console.error("Error loading technician:", error);
-		} finally {
-			setLoading(false);
 		}
-	}
+	}, [technician, form]);
 
 	async function uploadPhoto(file: File): Promise<string> {
 		if (file.size > 5 * 1024 * 1024) throw new Error("File size must be less than 5MB");
@@ -208,20 +197,17 @@ function EditTechnicianContent({ id }: { id: string }) {
 				}
 			}
 
-			const response = await fetch(`/api/admin/technicians/${id}`, {
-				method: "PATCH",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					...data,
-					photoUrl,
-				}),
+			const result = await updateTechnician(id, {
+				...data,
+				photoUrl,
 			});
 
-			if (response.ok) {
+			if (result.success) {
+				queryClient.invalidateQueries({ queryKey: ["admin-technicians"] });
+				queryClient.invalidateQueries({ queryKey: ["admin-technician", id] });
 				router.push("/admin/technicians");
 			} else {
-				const error = await response.json();
-				alert(error.error || "Failed to update technician");
+				alert(result.error || "Failed to update technician");
 			}
 		} catch (error) {
 			console.error("Error updating technician:", error);
@@ -231,7 +217,7 @@ function EditTechnicianContent({ id }: { id: string }) {
 		}
 	}
 
-	if (loading) {
+	if (isLoading) {
 		return <div className="container mx-auto p-4">Loading...</div>;
 	}
 

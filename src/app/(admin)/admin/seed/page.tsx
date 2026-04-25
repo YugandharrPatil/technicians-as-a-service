@@ -1,8 +1,10 @@
 "use client";
 
+import { seedTechnicians } from "@/actions/admin";
 import { AdminGate } from "@/components/auth/admin-gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 export default function SeedPage() {
@@ -16,19 +18,18 @@ export default function SeedPage() {
 function SeedContent() {
 	const [loading, setLoading] = useState(false);
 	const [message, setMessage] = useState("");
+	const queryClient = useQueryClient();
 
 	const handleSeed = async () => {
 		setLoading(true);
 		setMessage("");
 		try {
-			const response = await fetch("/api/seed-technicians", {
-				method: "POST",
-			});
-			const data = await response.json();
-			if (response.ok) {
-				setMessage(`Success: ${data.message}`);
+			const result = await seedTechnicians();
+			if (result.success) {
+				setMessage(`Success: ${result.message}`);
+				queryClient.invalidateQueries({ queryKey: ["admin-technicians"] });
 			} else {
-				setMessage(`Error: ${data.error}`);
+				setMessage(`Error: ${result.error}`);
 			}
 		} catch (error) {
 			setMessage("Error seeding technicians");

@@ -1,9 +1,9 @@
 "use client";
 
+import { updateBookingLead, updateBookingStatus } from "@/actions/admin";
 import { AdminGate } from "@/components/auth/admin-gate";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -50,17 +50,16 @@ function AdminBookingDetailContent({ id }: { id: string }) {
 		}
 	}
 
-	async function updateStatus(newStatus: string) {
+	async function handleUpdateStatus(newStatus: string) {
 		if (!booking) return;
 		setUpdating(true);
 		try {
-			const response = await fetch(`/api/admin/bookings/${id}`, {
-				method: "PATCH",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ status: newStatus }),
-			});
-			if (response.ok) setBooking((prev) => (prev ? { ...prev, status: newStatus as Booking["status"] } : null));
-			else alert("Failed to update status");
+			const result = await updateBookingStatus(id, newStatus);
+			if (result.success) {
+				setBooking((prev) => (prev ? { ...prev, status: newStatus as Booking["status"] } : null));
+			} else {
+				alert(result.error || "Failed to update status");
+			}
 		} catch (error) {
 			console.error("Error updating status:", error);
 			alert("Failed to update status");
@@ -69,12 +68,11 @@ function AdminBookingDetailContent({ id }: { id: string }) {
 		}
 	}
 
-	async function updateLead(field: "contacted" | "closed", value: boolean) {
+	async function handleUpdateLead(field: "contacted" | "closed", value: boolean) {
 		if (!booking) return;
 		setUpdating(true);
 		try {
 			const leadData: Record<string, boolean> = {};
-			leadData[field] = value;
 			if (field === "contacted") {
 				leadData.contacted = value;
 				leadData.closed = booking.lead_closed;
@@ -82,12 +80,9 @@ function AdminBookingDetailContent({ id }: { id: string }) {
 				leadData.contacted = booking.lead_contacted;
 				leadData.closed = value;
 			}
-			const response = await fetch(`/api/admin/bookings/${id}`, {
-				method: "PATCH",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ lead: leadData }),
-			});
-			if (response.ok) {
+
+			const result = await updateBookingLead(id, leadData);
+			if (result.success) {
 				setBooking((prev) =>
 					prev
 						? {
@@ -97,7 +92,9 @@ function AdminBookingDetailContent({ id }: { id: string }) {
 							}
 						: null,
 				);
-			} else alert("Failed to update lead status");
+			} else {
+				alert(result.error || "Failed to update lead status");
+			}
 		} catch (error) {
 			console.error("Error updating lead:", error);
 			alert("Failed to update lead status");
@@ -126,7 +123,7 @@ function AdminBookingDetailContent({ id }: { id: string }) {
 				<CardContent className="space-y-6">
 					<div>
 						<h3 className="mb-4 font-semibold">Update Status</h3>
-						<Select value={booking.status} onValueChange={updateStatus} disabled={updating}>
+						<Select value={booking.status} onValueChange={handleUpdateStatus} disabled={updating}>
 							<SelectTrigger className="w-48">
 								<SelectValue />
 							</SelectTrigger>
@@ -142,13 +139,13 @@ function AdminBookingDetailContent({ id }: { id: string }) {
 						<h3 className="mb-4 font-semibold">Lead Tracking</h3>
 						<div className="flex gap-4">
 							<div className="flex items-center space-x-2">
-								<Checkbox id="contacted" checked={booking.lead_contacted} onCheckedChange={(checked) => updateLead("contacted", checked === true)} disabled={updating} />
+								<Checkbox id="contacted" checked={booking.lead_contacted} onCheckedChange={(checked) => handleUpdateLead("contacted", checked === true)} disabled={updating} />
 								<label htmlFor="contacted" className="cursor-pointer">
 									Contacted
 								</label>
 							</div>
 							<div className="flex items-center space-x-2">
-								<Checkbox id="closed" checked={booking.lead_closed} onCheckedChange={(checked) => updateLead("closed", checked === true)} disabled={updating} />
+								<Checkbox id="closed" checked={booking.lead_closed} onCheckedChange={(checked) => handleUpdateLead("closed", checked === true)} disabled={updating} />
 								<label htmlFor="closed" className="cursor-pointer">
 									Closed
 								</label>

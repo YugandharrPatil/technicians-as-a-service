@@ -1,5 +1,6 @@
 "use client";
 
+import { createTechnicianProfile, updateTechnicianProfile } from "@/actions/technician";
 import { TechnicianGate } from "@/components/auth/technician-gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -214,24 +215,18 @@ function TechnicianProfileContent() {
 				}
 			}
 
-			const endpoint = "/api/technician/profile";
-			const method = isEdit ? "PUT" : "POST";
+			const actionData = {
+				...data,
+				photoUrl,
+			};
 
-			const response = await fetch(endpoint, {
-				method,
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					...data,
-					photoUrl,
-				}),
-			});
+			const result = isEdit ? await updateTechnicianProfile(actionData) : await createTechnicianProfile(actionData);
 
-			if (response.ok) {
+			if (result.success) {
 				toast.success(isEdit ? "Profile updated successfully!" : "Profile created successfully!");
 				router.push("/technician/dashboard");
 			} else {
-				const error = await response.json();
-				toast.error(error.error || `Failed to ${isEdit ? "update" : "create"} profile`);
+				toast.error(result.error || `Failed to ${isEdit ? "update" : "create"} profile`);
 			}
 		} catch (error) {
 			console.error(`Error ${isEdit ? "updating" : "creating"} technician profile:`, error);

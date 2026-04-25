@@ -4,10 +4,9 @@ import { AdminGate } from "@/components/auth/admin-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Technician } from "@/lib/types/database";
+import { useAdminTechnicians } from "@/lib/hooks/use-admin-technicians";
 import { Plus } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 
 export default function AdminTechniciansPage() {
 	return (
@@ -18,28 +17,9 @@ export default function AdminTechniciansPage() {
 }
 
 function AdminTechniciansContent() {
-	const [technicians, setTechnicians] = useState<(Technician & { id: string })[]>([]);
-	const [loading, setLoading] = useState(true);
+	const { data: technicians, isLoading } = useAdminTechnicians();
 
-	useEffect(() => {
-		loadTechnicians();
-	}, []);
-
-	async function loadTechnicians() {
-		try {
-			const response = await fetch("/api/admin/technicians");
-			if (response.ok) {
-				const data = await response.json();
-				setTechnicians(data.technicians);
-			}
-		} catch (error) {
-			console.error("Error loading technicians:", error);
-		} finally {
-			setLoading(false);
-		}
-	}
-
-	if (loading) {
+	if (isLoading) {
 		return <div className="container mx-auto p-4">Loading...</div>;
 	}
 
@@ -55,13 +35,13 @@ function AdminTechniciansContent() {
 				</Link>
 			</div>
 
-			{technicians.length === 0 ? (
+			{!technicians || technicians.length === 0 ? (
 				<Card>
 					<CardContent className="py-8 text-center text-muted-foreground">No technicians yet. Create your first technician profile.</CardContent>
 				</Card>
 			) : (
 				<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-					{technicians.map((tech) => (
+					{technicians.map((tech: any) => (
 						<Card key={tech.id}>
 							<CardHeader>
 								<div className="flex items-center justify-between">
