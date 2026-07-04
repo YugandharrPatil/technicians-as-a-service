@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/lib/auth/context";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getUserAction, getTechnicianByUserIdAction } from "@/actions/client-db";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -34,9 +34,7 @@ export function TechnicianGate({ children }: TechnicianGateProps) {
 					return;
 				}
 
-				const supabase = getSupabaseBrowserClient();
-
-				const { data: userData } = await supabase.from("taas_users").select("*").eq("id", user.id).single();
+				const userData = await getUserAction(user.id);
 
 				if (userData) {
 					const userRoles: string[] = userData.roles || (userData.role ? [userData.role] : []);
@@ -44,7 +42,7 @@ export function TechnicianGate({ children }: TechnicianGateProps) {
 
 					if (hasTechnicianRole) {
 						if (pathname !== "/technician/profile") {
-							const { data: techData } = await supabase.from("taas_technicians").select("id").eq("user_id", user.id).single();
+							const techData = await getTechnicianByUserIdAction(user.id);
 
 							if (!techData) {
 								router.push("/technician/profile");

@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth/context";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getBookingAction, getTechnicianByUserIdAction, getTechnicianAction, getUserAction, checkExistingReviewAction, submitReviewAction } from "@/actions/client-db";
 import type { Booking, Review, Technician, User } from "@/lib/types/database";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Star } from "lucide-react";
@@ -55,18 +55,17 @@ function ReviewsContent() {
 	async function loadBookingAndReview() {
 		if (!user || !bookingId) return;
 		try {
-			const supabase = getSupabaseBrowserClient();
-			const { data: bookingData } = await supabase.from("taas_bookings").select("*").eq("id", bookingId).single();
-			if (!bookingData || bookingData.status !== "completed") {
+			const res = await getBookingAction(bookingId);
+			if (!res || !res.booking || res.booking.status !== "completed") {
 				setLoading(false);
 				return;
 			}
 
-			const bk = bookingData as Booking & { id: string };
+			const bk = res.booking as Booking & { id: string };
 			const isClientUser = bk.client_id === user.id;
 
 			// Check if user is a technician for this booking
-			const { data: techByUser } = await supabase.from("taas_technicians").select("id").eq("user_id", user.id).single();
+			const techByUser = await getTechnicianByUserIdAction(user.id);
 			const isTechnicianUser = !!techByUser;
 
 			if (!isClientUser && !isTechnicianUser) {
@@ -77,15 +76,22 @@ function ReviewsContent() {
 			setBooking(bk);
 			setIsClientReview(isClientUser);
 
+			let revieweeId = "";
 			if (isClientUser) {
-				const { data: techData } = await supabase.from("taas_technicians").select("*").eq("id", bk.technician_id).single();
-				if (techData) setTechnician(techData as Technician & { id: string });
+				const techData = await getTechnicianAction(bk.technician_id);
+				if (techData) {
+					setTechnician(techData as Technician & { id: string });
+					revieweeId = techData.user_id || techData.id;
+				}
 			} else {
-				const { data: clientData } = await supabase.from("taas_users").select("*").eq("id", bk.client_id).single();
-				if (clientData) setClient(clientData as User & { id: string });
+				const clientData = await getUserAction(bk.client_id);
+				if (clientData) {
+					setClient(clientData as User & { id: string });
+					revieweeId = clientData.id;
+				}
 			}
 
-			const { data: reviewData } = await supabase.from("taas_reviews").select("*").eq("booking_id", bookingId).eq("reviewer_id", user.id).single();
+			const reviewData = await checkExistingReviewAction(bookingId, user.id, revieweeId);
 			if (reviewData) {
 				setExistingReview(reviewData as Review & { id: string });
 				form.reset({ stars: reviewData.stars, text: reviewData.text || "" });
@@ -101,7 +107,6 @@ function ReviewsContent() {
 		if (!user || !booking) return;
 		setSubmitting(true);
 		try {
-			const supabase = getSupabaseBrowserClient();
 			const isClient = booking.client_id === user.id;
 
 			if (existingReview) {
@@ -111,8 +116,9 @@ function ReviewsContent() {
 			}
 
 			const revieweeId = isClient ? technician?.user_id || technician?.id || "" : booking.client_id;
+			const revieweeType = isClient ? "technician" : "client";
 
-			await supabase.from("taas_reviews").insert({
+			await submitReviewAction({
 				booking_id: booking.id,
 				client_id: booking.client_id,
 				technician_id: booking.technician_id,
@@ -120,6 +126,7 @@ function ReviewsContent() {
 				reviewee_id: revieweeId,
 				stars: data.stars,
 				text: data.text || "",
+				reviewee_type: revieweeType,
 			});
 
 			alert("Review submitted successfully!");

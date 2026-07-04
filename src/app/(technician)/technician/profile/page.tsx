@@ -11,6 +11,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth/context";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getTechnicianByUserIdAction } from "@/actions/client-db";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -147,8 +148,7 @@ function TechnicianProfileContent() {
 		async function loadTechnicianProfile() {
 			if (!user) return;
 			try {
-				const supabase = getSupabaseBrowserClient();
-				const { data: techData } = await supabase.from("taas_technicians").select("*").eq("user_id", user.id).single();
+				const techData = await getTechnicianByUserIdAction(user.id);
 
 				if (techData) {
 					setIsEdit(true);
@@ -179,6 +179,19 @@ function TechnicianProfileContent() {
 		if (!user) throw new Error("You must be authenticated to upload photos");
 		if (file.size > 5 * 1024 * 1024) throw new Error("File size must be less than 5MB");
 		if (!file.type.startsWith("image/")) throw new Error("File must be an image");
+
+		const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+		const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
+
+		if (!supabaseUrl || !supabaseKey) {
+			// Fallback to Base64 data URL if Supabase credentials are not present
+			return new Promise((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onloadend = () => resolve(reader.result as string);
+				reader.onerror = reject;
+				reader.readAsDataURL(file);
+			});
+		}
 
 		const supabase = getSupabaseBrowserClient();
 		const timestamp = Date.now();

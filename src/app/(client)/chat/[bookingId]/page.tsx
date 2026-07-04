@@ -10,7 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth/context";
 import { useChat } from "@/lib/hooks/use-chat";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getBookingAction, getUserAction, getTechnicianByUserIdAction, getTechnicianAction, updateBookingAction } from "@/actions/client-db";
 import type { Booking, ChatMessage, User as DbUser, Technician } from "@/lib/types/database";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -46,31 +46,30 @@ export default function ChatPage({ params }: { params: Promise<{ bookingId: stri
 	async function loadBooking() {
 		if (!user) return;
 		try {
-			const supabase = getSupabaseBrowserClient();
-			const { data: bookingData } = await supabase.from("taas_bookings").select("*").eq("id", bookingId).single();
-			if (!bookingData) {
+			const res = await getBookingAction(bookingId);
+			if (!res || !res.booking) {
 				setLoading(false);
 				return;
 			}
-			const bk = bookingData as Booking;
+			const bk = res.booking;
 			setBooking(bk);
 
 			// Determine user role
 			if (bk.client_id === user.id) {
 				setUserRole("client");
-				const { data: tech } = await supabase.from("taas_technicians").select("*").eq("id", bk.technician_id).single();
+				const tech = await getTechnicianAction(bk.technician_id);
 				if (tech) {
-					setTechnician(tech as Technician);
+					setTechnician(tech);
 					setOtherPartyName(tech.name);
 				}
 			} else {
 				setUserRole("technician");
-				const { data: clientData } = await supabase.from("taas_users").select("*").eq("id", bk.client_id).single();
+				const clientData = await getUserAction(bk.client_id);
 				if (clientData) {
-					setOtherPartyName((clientData as DbUser).display_name || (clientData as DbUser).email);
+					setOtherPartyName(clientData.display_name || clientData.email);
 				}
-				const { data: tech } = await supabase.from("taas_technicians").select("*").eq("user_id", user.id).single();
-				if (tech) setTechnician(tech as Technician);
+				const tech = await getTechnicianByUserIdAction(user.id);
+				if (tech) setTechnician(tech);
 			}
 		} catch (error) {
 			console.error("Error loading booking:", error);
@@ -122,16 +121,11 @@ export default function ChatPage({ params }: { params: Promise<{ bookingId: stri
 	async function handleAcceptOffer(msg: ChatMessage) {
 		if (!user || !booking) return;
 		try {
-			const supabase = getSupabaseBrowserClient();
-			await supabase
-				.from("taas_bookings")
-				.update({
-					negotiated_price: msg.offer_price,
-					negotiated_date_time: msg.offer_date_time,
-					status: "confirmed",
-					updated_at: new Date().toISOString(),
-				})
-				.eq("id", bookingId);
+			await updateBookingAction(bookingId, {
+				negotiated_price: msg.offer_price,
+				negotiated_date_time: msg.offer_date_time,
+				status: "confirmed",
+			});
 			await sendMessage(user.id, userRole, `✅ Offer accepted! Price: $${msg.offer_price?.toFixed(2)}`);
 			queryClient.invalidateQueries({ queryKey: ["booking", bookingId] });
 			setBooking((prev) => (prev ? { ...prev, negotiated_price: msg.offer_price!, negotiated_date_time: msg.offer_date_time!, status: "confirmed" } : null));
@@ -170,7 +164,7 @@ export default function ChatPage({ params }: { params: Promise<{ bookingId: stri
 					<div className="space-y-4">
 						{messages.map((msg) => {
 							const isMe = msg.sender_id === user.id;
-							const hasOffer = msg.offer_price != null && msg.offer_price > 0;
+							const hasOffer = msg.offer_price != null && Number(msg.offer_price) > 0;
 							const canAcceptOffer = hasOffer && msg.sender_id !== user.id && booking.status !== "confirmed";
 
 							return (
@@ -180,7 +174,7 @@ export default function ChatPage({ params }: { params: Promise<{ bookingId: stri
 										<p className="text-sm whitespace-pre-wrap">{msg.message}</p>
 										{hasOffer && (
 											<div className="mt-2 rounded bg-yellow-100 p-2 text-yellow-800 text-sm">
-												<p className="font-semibold">💰 Offer: ${msg.offer_price?.toFixed(2)}</p>
+												<p className="font-semibold">💰 Offer: ${Number(msg.offer_price).toFixed(2)}</p>
 												{msg.offer_date_time && <p>📅 {new Date(msg.offer_date_time).toLocaleString()}</p>}
 												{canAcceptOffer && (
 													<Button size="sm" className="mt-2 w-full" onClick={() => handleAcceptOffer(msg)}>

@@ -4,7 +4,7 @@ import { AdminGate } from "@/components/auth/admin-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getAdminBookingsAction } from "@/actions/client-db";
 import type { Booking, Technician, User } from "@/lib/types/database";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -30,18 +30,10 @@ function AdminBookingsContent() {
 
 	async function loadBookings() {
 		try {
-			const supabase = getSupabaseBrowserClient();
-			const { data, error } = await supabase.from("taas_bookings").select("*, taas_technicians(name), taas_users(display_name, email)").order("created_at", { ascending: false });
-
-			if (error) throw error;
+			const data = await getAdminBookingsAction();
 
 			const bookingsData: BookingWithDetails[] = (data || [])
-				.filter((b: any) => filter === "all" || b.status === filter)
-				.map((b: any) => ({
-					...b,
-					technician_name: b.taas_technicians?.name,
-					client_name: b.taas_users?.display_name || b.taas_users?.email,
-				}));
+				.filter((b: any) => filter === "all" || b.status === filter);
 
 			setBookings(bookingsData);
 		} catch (error) {

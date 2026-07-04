@@ -3,8 +3,11 @@
 import { requireAdmin } from "@/lib/auth/admin";
 import { buildEmbeddingText, generateEmbedding } from "@/lib/embeddings";
 import { getPineconeIndex } from "@/lib/pinecone";
-import { getSupabaseServiceClient } from "@/lib/supabase/server";
+import { db } from "@/db";
+import { taasUsers, taasTechnicians, taasBookings } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
+import type { Technician } from "@/lib/types/database";
 
 // ─── Schemas ─────────────────────────────────────────────
 
@@ -39,27 +42,20 @@ export async function createTechnician(input: z.infer<typeof technicianSchema>) 
 	}
 
 	try {
-		const supabase = getSupabaseServiceClient();
 		const data = technicianSchema.parse(input);
+		const newId = crypto.randomUUID();
 
-		const { data: newTech, error: insertError } = await supabase
-			.from("taas_technicians")
-			.insert({
-				name: data.name,
-				job_types: data.jobTypes,
-				bio: data.bio,
-				tags: data.tags,
-				cities: data.cities,
-				is_visible: data.isVisible,
-				photo_url: data.photoUrl,
-				user_id: data.userId,
-			})
-			.select("id")
-			.single();
-
-		if (insertError || !newTech) {
-			return { error: "Failed to create technician" };
-		}
+		await db.insert(taasTechnicians).values({
+			id: newId,
+			name: data.name,
+			job_types: data.jobTypes,
+			bio: data.bio,
+			tags: data.tags,
+			cities: data.cities,
+			is_visible: data.isVisible,
+			photo_url: data.photoUrl || null,
+			user_id: data.userId || null,
+		});
 
 		// Generate embedding and upsert to Pinecone
 		try {
@@ -73,7 +69,7 @@ export async function createTechnician(input: z.infer<typeof technicianSchema>) 
 
 			const embedding = await generateEmbedding(embeddingText);
 			const index = await getPineconeIndex();
-			const pineconeId = `technician:${newTech.id}`;
+			const pineconeId = `technician:${newId}`;
 
 			await index.upsert([
 				{
@@ -84,14 +80,13 @@ export async function createTechnician(input: z.infer<typeof technicianSchema>) 
 						tags: data.tags,
 						cities: data.cities,
 						isVisible: data.isVisible,
-						technicianId: newTech.id,
+						technicianId: newId,
 					},
 				},
 			]);
 
-			await supabase
-				.from("taas_technicians")
-				.update({
+			await db.update(taasTechnicians)
+				.set({
 					embedding: {
 						provider: "gemini",
 						model: "text-embedding-004",
@@ -99,12 +94,11 @@ export async function createTechnician(input: z.infer<typeof technicianSchema>) 
 						updatedAt: new Date().toISOString(),
 					},
 				})
-				.eq("id", newTech.id);
+				.where(eq(taasTechnicians.id, newId));
 		} catch (embeddingError) {
 			console.error("Error generating embedding:", embeddingError);
-			await supabase
-				.from("taas_technicians")
-				.update({
+			await db.update(taasTechnicians)
+				.set({
 					embedding: {
 						provider: "gemini",
 						model: "text-embedding-004",
@@ -113,10 +107,10 @@ export async function createTechnician(input: z.infer<typeof technicianSchema>) 
 						error: "Failed to generate embedding",
 					},
 				})
-				.eq("id", newTech.id);
+				.where(eq(taasTechnicians.id, newId));
 		}
 
-		return { id: newTech.id, success: true };
+		return { id: newId, success: true };
 	} catch (error) {
 		if (error instanceof z.ZodError) {
 			return { error: "Validation error", details: error.issues };
@@ -134,13 +128,12 @@ export async function updateTechnician(id: string, input: z.infer<typeof technic
 	}
 
 	try {
-		const supabase = getSupabaseServiceClient();
 		const data = technicianUpdateSchema.parse(input);
 
-		const { data: existing, error: fetchError } = await supabase.from("taas_technicians").select("*").eq("id", id).single();
-		if (fetchError || !existing) return { error: "Technician not found" };
+		const [existing] = await db.select().from(taasTechnicians).where(eq(taasTechnicians.id, id)).limit(1);
+		if (!existing) return { error: "Technician not found" };
 
-		const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+		const updates: Record<string, any> = { updated_at: new Date().toISOString() };
 		if (data.name !== undefined) updates.name = data.name;
 		if (data.jobTypes !== undefined) updates.job_types = data.jobTypes;
 		if (data.bio !== undefined) updates.bio = data.bio;
@@ -149,15 +142,15 @@ export async function updateTechnician(id: string, input: z.infer<typeof technic
 		if (data.isVisible !== undefined) updates.is_visible = data.isVisible;
 		if (data.photoUrl !== undefined) updates.photo_url = data.photoUrl;
 
-		await supabase.from("taas_technicians").update(updates).eq("id", id);
+		await db.update(taasTechnicians).set(updates).where(eq(taasTechnicians.id, id));
 
 		const fieldsChanged = data.name || data.jobTypes || data.bio || data.tags || data.cities;
 		if (fieldsChanged) {
 			try {
-				const finalData = { ...existing, ...updates };
+				const finalData = { ...(existing as unknown as Technician), ...updates };
 				const embeddingText = buildEmbeddingText({
 					name: finalData.name as string,
-					jobTypes: (finalData.job_types || finalData.jobTypes) as string[],
+					jobTypes: finalData.job_types as string[],
 					bio: finalData.bio as string,
 					tags: finalData.tags as string[],
 					cities: finalData.cities as string[],
@@ -169,16 +162,21 @@ export async function updateTechnician(id: string, input: z.infer<typeof technic
 					{
 						id: pineconeId,
 						values: embedding,
-						metadata: { jobTypes: finalData.job_types || finalData.jobTypes, tags: finalData.tags, cities: finalData.cities, isVisible: finalData.is_visible ?? true, technicianId: id },
+						metadata: {
+							jobTypes: finalData.job_types,
+							tags: finalData.tags,
+							cities: finalData.cities,
+							isVisible: finalData.is_visible ?? true,
+							technicianId: id
+						},
 					},
 				]);
-				const embeddingMeta = existing.embedding || {};
-				await supabase
-					.from("taas_technicians")
-					.update({
+				const embeddingMeta = (existing.embedding as Record<string, any>) || {};
+				await db.update(taasTechnicians)
+					.set({
 						embedding: { ...embeddingMeta, pineconeId, updatedAt: new Date().toISOString() },
 					})
-					.eq("id", id);
+					.where(eq(taasTechnicians.id, id));
 			} catch (embeddingError) {
 				console.error("Error updating embedding:", embeddingError);
 			}
@@ -200,8 +198,7 @@ export async function deleteTechnician(id: string) {
 	}
 
 	try {
-		const supabase = getSupabaseServiceClient();
-		await supabase.from("taas_technicians").delete().eq("id", id);
+		await db.delete(taasTechnicians).where(eq(taasTechnicians.id, id));
 		try {
 			const index = await getPineconeIndex();
 			await index.deleteOne(`technician:${id}`);
@@ -222,10 +219,8 @@ export async function getAdminTechnicians() {
 		throw new Error("Unauthorized: Admin access required");
 	}
 
-	const supabase = getSupabaseServiceClient();
-	const { data: technicians, error } = await supabase.from("taas_technicians").select("*");
-	if (error) throw error;
-	return technicians;
+	const technicians = await db.select().from(taasTechnicians);
+	return technicians as unknown as Technician[];
 }
 
 export async function getAdminTechnician(id: string) {
@@ -235,10 +230,9 @@ export async function getAdminTechnician(id: string) {
 		throw new Error("Unauthorized: Admin access required");
 	}
 
-	const supabase = getSupabaseServiceClient();
-	const { data, error } = await supabase.from("taas_technicians").select("*").eq("id", id).single();
-	if (error || !data) throw new Error("Technician not found");
-	return data;
+	const [data] = await db.select().from(taasTechnicians).where(eq(taasTechnicians.id, id)).limit(1);
+	if (!data) throw new Error("Technician not found");
+	return data as unknown as Technician;
 }
 
 // ─── Booking Actions ─────────────────────────────────────
@@ -251,15 +245,12 @@ export async function updateBookingStatus(id: string, status: string) {
 	}
 
 	try {
-		const supabase = getSupabaseServiceClient();
-		const { error } = await supabase
-			.from("taas_bookings")
-			.update({
+		await db.update(taasBookings)
+			.set({
 				status,
 				updated_at: new Date().toISOString(),
 			})
-			.eq("id", id);
-		if (error) throw error;
+			.where(eq(taasBookings.id, id));
 		return { success: true };
 	} catch (error) {
 		console.error("Error updating booking status:", error);
@@ -275,16 +266,14 @@ export async function updateBookingLead(id: string, lead: { contacted?: boolean;
 	}
 
 	try {
-		const supabase = getSupabaseServiceClient();
-		const updates: Record<string, unknown> = {
+		const updates: Record<string, any> = {
 			updated_at: new Date().toISOString(),
 		};
 
 		if (lead.contacted !== undefined) updates.lead_contacted = lead.contacted;
 		if (lead.closed !== undefined) updates.lead_closed = lead.closed;
 
-		const { error } = await supabase.from("taas_bookings").update(updates).eq("id", id);
-		if (error) throw error;
+		await db.update(taasBookings).set(updates).where(eq(taasBookings.id, id));
 		return { success: true };
 	} catch (error) {
 		console.error("Error updating booking lead:", error);
@@ -385,9 +374,12 @@ export async function seedTechnicians() {
 	}
 
 	try {
-		const supabase = getSupabaseServiceClient();
-		const { error } = await supabase.from("taas_technicians").insert(dummyTechnicians);
-		if (error) throw error;
+		const dummyWithIds = dummyTechnicians.map((t) => ({
+			id: crypto.randomUUID(),
+			...t,
+		}));
+
+		await db.insert(taasTechnicians).values(dummyWithIds);
 		return { success: true, message: `Created ${dummyTechnicians.length} technicians` };
 	} catch (error) {
 		console.error("Error seeding technicians:", error);

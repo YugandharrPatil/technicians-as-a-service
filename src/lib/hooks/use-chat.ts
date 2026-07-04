@@ -1,4 +1,4 @@
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getChatMessagesAction, sendChatMessageAction } from "@/actions/client-db";
 import type { ChatMessage } from "@/lib/types/database";
 import { useEffect, useState } from "react";
 
@@ -12,46 +12,29 @@ export function useChat(bookingId: string | undefined) {
 			return;
 		}
 
-		const supabase = getSupabaseBrowserClient();
+		const currentBookingId = bookingId;
+		let active = true;
 
-		// Load initial messages
 		async function loadMessages() {
-			const { data, error } = await supabase.from("taas_chats").select("*").eq("booking_id", bookingId).order("created_at", { ascending: true });
-
-			if (error) {
+			try {
+				const data = await getChatMessagesAction(currentBookingId);
+				if (active) {
+					setMessages(data);
+					setLoading(false);
+				}
+			} catch (error) {
 				console.error("Error loading chat messages:", error);
-			} else {
-				setMessages(data || []);
 			}
-			setLoading(false);
 		}
 
 		loadMessages();
 
-		// Subscribe to realtime changes
-		const channel = supabase
-			.channel(`chat:${bookingId}`)
-			.on(
-				"postgres_changes",
-				{
-					event: "INSERT",
-					schema: "public",
-					table: "taas_chats",
-					filter: `booking_id=eq.${bookingId}`,
-				},
-				(payload) => {
-					const newMessage = payload.new as ChatMessage;
-					setMessages((prev) => {
-						// Avoid duplicates
-						if (prev.some((m) => m.id === newMessage.id)) return prev;
-						return [...prev, newMessage];
-					});
-				},
-			)
-			.subscribe();
+		// Poll every 2 seconds for new messages
+		const interval = setInterval(loadMessages, 2000);
 
 		return () => {
-			supabase.removeChannel(channel);
+			active = false;
+			clearInterval(interval);
 		};
 	}, [bookingId]);
 
@@ -60,22 +43,24 @@ export function useChat(bookingId: string | undefined) {
 			throw new Error("Booking ID is required");
 		}
 
-		const supabase = getSupabaseBrowserClient();
+		const currentBookingId = bookingId;
 
-		const messageData: Record<string, unknown> = {
-			booking_id: bookingId,
+		await sendChatMessageAction({
+			booking_id: currentBookingId,
 			sender_id: senderId,
 			sender_type: senderType,
 			message,
-		};
+			offer_price: offer?.price,
+			offer_date_time: offer?.dateTime.toISOString(),
+		});
 
-		if (offer) {
-			messageData.offer_price = offer.price;
-			messageData.offer_date_time = offer.dateTime.toISOString();
+		// Instantly reload messages to update UI immediately
+		try {
+			const data = await getChatMessagesAction(currentBookingId);
+			setMessages(data);
+		} catch (error) {
+			console.error("Error reloading chat messages after sending:", error);
 		}
-
-		const { error } = await supabase.from("taas_chats").insert(messageData);
-		if (error) throw error;
 	};
 
 	return { messages, loading, sendMessage };

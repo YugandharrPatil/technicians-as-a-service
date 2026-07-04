@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/lib/auth/context";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getUserAction, getTechnicianByUserIdAction } from "@/actions/client-db";
 import { SignIn, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -22,8 +22,7 @@ export function Login({ role }: LoginProps) {
 			// Sync user with specific role
 			await syncUser(role);
 
-			const supabase = getSupabaseBrowserClient();
-			const { data: userData } = await supabase.from("taas_users").select("*").eq("id", clerkUser.id).single();
+			const userData = await getUserAction(clerkUser.id);
 
 			if (userData) {
 				const userRoles: string[] = userData.roles || (userData.role ? [userData.role] : []);
@@ -37,7 +36,7 @@ export function Login({ role }: LoginProps) {
 				} else if (role === "technician") {
 					if (userData.role === "technician" || userRoles.includes("technician")) {
 						// Check if technician profile exists
-						const { data: techData } = await supabase.from("taas_technicians").select("id").eq("user_id", clerkUser.id).single();
+						const techData = await getTechnicianByUserIdAction(clerkUser.id);
 
 						if (!techData) {
 							router.push("/technician/profile");

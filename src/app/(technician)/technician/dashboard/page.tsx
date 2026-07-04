@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth/context";
 import { useTechnicianBookings } from "@/lib/hooks/use-technician-bookings";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { updateBookingAction } from "@/actions/client-db";
 import type { BookingStatus } from "@/lib/types/database";
 import { useQueryClient } from "@tanstack/react-query";
 import { Calendar, MapPin, User } from "lucide-react";
@@ -48,15 +48,10 @@ function TechnicianDashboardContent() {
 
 	const handleAccept = async (bookingId: string) => {
 		try {
-			const supabase = getSupabaseBrowserClient();
-			await supabase
-				.from("taas_bookings")
-				.update({
-					status: "accepted",
-					accepted_at: new Date().toISOString(),
-					updated_at: new Date().toISOString(),
-				})
-				.eq("id", bookingId);
+			await updateBookingAction(bookingId, {
+				status: "accepted",
+				accepted_at: new Date().toISOString(),
+			});
 			queryClient.invalidateQueries({ queryKey: ["technician-bookings"] });
 		} catch (error) {
 			console.error("Error accepting booking:", error);
@@ -66,14 +61,9 @@ function TechnicianDashboardContent() {
 
 	const handleReject = async (bookingId: string) => {
 		try {
-			const supabase = getSupabaseBrowserClient();
-			await supabase
-				.from("taas_bookings")
-				.update({
-					status: "rejected",
-					updated_at: new Date().toISOString(),
-				})
-				.eq("id", bookingId);
+			await updateBookingAction(bookingId, {
+				status: "rejected",
+			});
 			queryClient.invalidateQueries({ queryKey: ["technician-bookings"] });
 		} catch (error) {
 			console.error("Error rejecting booking:", error);

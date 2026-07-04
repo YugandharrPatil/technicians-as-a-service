@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import type { Booking, Review, Technician, User } from "@/lib/types/database";
+import { checkExistingReviewAction, submitReviewAction } from "@/actions/client-db";
+import type { Booking, Review } from "@/lib/types/database";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Star } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -51,11 +51,10 @@ export function ReviewDialog({ open, onOpenChange, booking, reviewerId, reviewee
 
 	async function checkExistingReview() {
 		try {
-			const supabase = getSupabaseBrowserClient();
-			const { data } = await supabase.from("taas_reviews").select("*").eq("booking_id", booking.id).eq("reviewer_id", reviewerId).eq("reviewee_id", revieweeId).single();
+			const data = await checkExistingReviewAction(booking.id, reviewerId, revieweeId);
 
 			if (data) {
-				setExistingReview(data as Review);
+				setExistingReview(data);
 				form.reset({
 					stars: data.stars,
 					text: data.text || "",
@@ -70,70 +69,23 @@ export function ReviewDialog({ open, onOpenChange, booking, reviewerId, reviewee
 		}
 	}
 
-	async function updateRatings(revieweeId: string, revieweeType: "client" | "technician", newRating: number, oldRating?: number) {
-		try {
-			const supabase = getSupabaseBrowserClient();
-
-			// Get all reviews for this reviewee
-			const { data: allReviews } = await supabase.from("taas_reviews").select("stars").eq("reviewee_id", revieweeId);
-
-			let totalStars = 0;
-			let reviewCount = (allReviews || []).length;
-
-			(allReviews || []).forEach((r: any) => {
-				totalStars += r.stars;
-			});
-
-			if (oldRating !== undefined) {
-				totalStars = totalStars - oldRating + newRating;
-			} else {
-				totalStars += newRating;
-				reviewCount++;
-			}
-
-			const ratingAvg = reviewCount > 0 ? totalStars / reviewCount : 0;
-			const roundedAvg = Math.round(ratingAvg * 10) / 10;
-
-			if (revieweeType === "technician") {
-				const { data: tech } = await supabase.from("taas_technicians").select("id").eq("user_id", revieweeId).single();
-
-				if (tech) {
-					await supabase.from("taas_technicians").update({ rating_avg: roundedAvg, rating_count: reviewCount }).eq("id", tech.id);
-				}
-			} else {
-				await supabase.from("taas_users").update({ rating_avg: roundedAvg, rating_count: reviewCount }).eq("id", revieweeId);
-			}
-		} catch (error) {
-			console.error("Error updating ratings:", error);
-		}
-	}
-
 	async function onSubmit(data: ReviewFormValues) {
 		setSubmitting(true);
 		try {
-			const supabase = getSupabaseBrowserClient();
+			await submitReviewAction({
+				booking_id: booking.id,
+				client_id: booking.client_id,
+				technician_id: booking.technician_id,
+				reviewer_id: reviewerId,
+				reviewee_id: revieweeId,
+				stars: data.stars,
+				text: data.text || "",
+				reviewee_type: revieweeType,
+			});
 
 			if (existingReview) {
-				const oldRating = existingReview.stars;
-				await supabase
-					.from("taas_reviews")
-					.update({ stars: data.stars, text: data.text || "" })
-					.eq("id", existingReview.id);
-
-				await updateRatings(revieweeId, revieweeType, data.stars, oldRating);
 				toast.success("Review updated successfully!");
 			} else {
-				await supabase.from("taas_reviews").insert({
-					booking_id: booking.id,
-					client_id: booking.client_id,
-					technician_id: booking.technician_id,
-					reviewer_id: reviewerId,
-					reviewee_id: revieweeId,
-					stars: data.stars,
-					text: data.text || "",
-				});
-
-				await updateRatings(revieweeId, revieweeType, data.stars);
 				toast.success("Review submitted successfully!");
 			}
 

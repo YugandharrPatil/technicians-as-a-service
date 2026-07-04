@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth/context";
 import { useBooking } from "@/lib/hooks/use-booking";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { updateBookingAction, checkExistingReviewAction } from "@/actions/client-db";
 import type { Booking } from "@/lib/types/database";
 import { useQueryClient } from "@tanstack/react-query";
 import { Calendar, MapPin, MessageSquare, User, Wrench } from "lucide-react";
@@ -18,7 +18,8 @@ import { toast } from "sonner";
 export default function BookingStatusPage({ params }: { params: Promise<{ id: string }> }) {
 	const { id } = use(params);
 	const { user } = useAuth();
-	const { data, isLoading, error } = useBooking(id);
+	// Use 2-second polling to replace realtime subscriptions
+	const { data, isLoading, error } = useBooking(id, { refetchInterval: 2000 });
 	const booking = data?.booking;
 	const technician = data?.technician;
 
@@ -28,34 +29,22 @@ export default function BookingStatusPage({ params }: { params: Promise<{ id: st
 	const [showCompletionDialog, setShowCompletionDialog] = useState(false);
 	const queryClient = useQueryClient();
 
-	// Realtime listener for booking status changes
+	// Check if review exists when booking becomes completed
 	useEffect(() => {
-		if (!id || !user || isLoading) return;
+		if (!id || !user || !booking || !technician?.user_id) return;
 
-		const supabase = getSupabaseBrowserClient();
-
-		const channel = supabase
-			.channel(`booking-status:${id}`)
-			.on("postgres_changes", { event: "UPDATE", schema: "public", table: "taas_bookings", filter: `id=eq.${id}` }, async (payload) => {
-				const updatedBooking = payload.new as Booking;
-				queryClient.invalidateQueries({ queryKey: ["booking", id] });
-
-				if (updatedBooking.status === "completed" && updatedBooking.completed_by_client && updatedBooking.completed_by_technician && technician?.user_id) {
-					const { data: existingReview } = await supabase.from("taas_reviews").select("id").eq("booking_id", id).eq("reviewer_id", user.id).eq("reviewee_id", technician.user_id).single();
-
-					if (!existingReview) {
-						setShowReviewDialog(true);
-					} else {
-						setHasReviewed(true);
-					}
+		if (booking.status === "completed" && booking.completed_by_client && booking.completed_by_technician) {
+			checkExistingReviewAction(id, user.id, technician.user_id).then((existingReview) => {
+				if (!existingReview) {
+					setShowReviewDialog(true);
+				} else {
+					setHasReviewed(true);
 				}
-			})
-			.subscribe();
-
-		return () => {
-			supabase.removeChannel(channel);
-		};
-	}, [id, user?.id, technician, isLoading]);
+			}).catch((err) => {
+				console.error("Error checking review status:", err);
+			});
+		}
+	}, [booking?.status, booking?.completed_by_client, booking?.completed_by_technician, user?.id, technician?.user_id, id]);
 
 	const getStatusColor = (status: string) => {
 		switch (status) {
@@ -78,15 +67,13 @@ export default function BookingStatusPage({ params }: { params: Promise<{ id: st
 		if (!booking) return;
 		setUpdating(true);
 		try {
-			const supabase = getSupabaseBrowserClient();
-			const updates: Record<string, unknown> = {
+			const updates: Partial<Booking> = {
 				completed_by_client: true,
-				updated_at: new Date().toISOString(),
 			};
 			if (booking.completed_by_technician) {
 				updates.status = "completed";
 			}
-			await supabase.from("taas_bookings").update(updates).eq("id", id);
+			await updateBookingAction(id, updates);
 			queryClient.invalidateQueries({ queryKey: ["booking", id] });
 			queryClient.invalidateQueries({ queryKey: ["bookings"] });
 		} catch (error) {
@@ -158,7 +145,7 @@ export default function BookingStatusPage({ params }: { params: Promise<{ id: st
 							<div className="mb-2 text-sm text-muted-foreground">
 								<span className="font-medium">Negotiated Price</span>
 							</div>
-							<p className="text-lg font-semibold">${booking.negotiated_price.toFixed(2)}</p>
+							<p className="text-lg font-semibold">${Number(booking.negotiated_price).toFixed(2)}</p>
 						</div>
 					)}
 					{booking.negotiated_date_time && (

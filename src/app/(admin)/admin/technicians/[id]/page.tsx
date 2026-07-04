@@ -164,6 +164,18 @@ function EditTechnicianContent({ id }: { id: string }) {
 		if (file.size > 5 * 1024 * 1024) throw new Error("File size must be less than 5MB");
 		if (!file.type.startsWith("image/")) throw new Error("File must be an image");
 
+		const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+		const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
+
+		if (!supabaseUrl || !supabaseKey) {
+			return new Promise((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onloadend = () => resolve(reader.result as string);
+				reader.onerror = reject;
+				reader.readAsDataURL(file);
+			});
+		}
+
 		const supabase = getSupabaseBrowserClient();
 		const timestamp = Date.now();
 		const ext = file.name.split(".").pop() || "jpg";

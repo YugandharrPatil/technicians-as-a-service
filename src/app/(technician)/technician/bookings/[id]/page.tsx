@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth/context";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getBookingAction, getUserAction, updateBookingAction, checkExistingReviewAction } from "@/actions/client-db";
 import type { Booking, User } from "@/lib/types/database";
 import { useQueryClient } from "@tanstack/react-query";
 import { Calendar, MapPin, MessageSquare, User as UserIcon } from "lucide-react";
@@ -39,34 +39,47 @@ function TechnicianBookingDetailContent({ id }: { id: string }) {
 		loadBooking();
 	}, [id]);
 
-	// Real-time listener for booking updates
+	// Periodic polling to check for status updates
 	useEffect(() => {
 		if (!id || !user) return;
-		const supabase = getSupabaseBrowserClient();
-		const channel = supabase
-			.channel(`tech-booking:${id}`)
-			.on("postgres_changes", { event: "UPDATE", schema: "public", table: "taas_bookings", filter: `id=eq.${id}` }, async (payload) => {
-				const updated = payload.new as Booking;
+		const userId = user.id;
+
+		let active = true;
+
+		async function pollBooking() {
+			try {
+				const res = await getBookingAction(id);
+				if (!res || !active) return;
+				
+				const updated = res.booking;
 				setBooking({ ...updated, id: updated.id });
+
 				if (updated.status === "completed" && updated.completed_by_client && updated.completed_by_technician && client) {
-					const { data: review } = await supabase.from("taas_reviews").select("id").eq("booking_id", id).eq("reviewer_id", user.id).eq("reviewee_id", client.id).single();
-					if (!review) setShowReviewDialog(true);
-					else setHasReviewed(true);
+					const review = await checkExistingReviewAction(id, userId, client.id);
+					if (!review) {
+						setShowReviewDialog(true);
+					} else {
+						setHasReviewed(true);
+					}
 				}
-			})
-			.subscribe();
+			} catch (error) {
+				console.error("Error polling booking status:", error);
+			}
+		}
+
+		const interval = setInterval(pollBooking, 2000);
 		return () => {
-			supabase.removeChannel(channel);
+			active = false;
+			clearInterval(interval);
 		};
 	}, [id, user?.id, client]);
 
 	async function loadBooking() {
 		try {
-			const supabase = getSupabaseBrowserClient();
-			const { data: bookingData } = await supabase.from("taas_bookings").select("*").eq("id", id).single();
-			if (bookingData) {
-				setBooking(bookingData as Booking & { id: string });
-				const { data: userData } = await supabase.from("taas_users").select("*").eq("id", bookingData.client_id).single();
+			const res = await getBookingAction(id);
+			if (res && res.booking) {
+				setBooking(res.booking as Booking & { id: string });
+				const userData = await getUserAction(res.booking.client_id);
 				if (userData) setClient(userData as User & { id: string });
 			}
 		} catch (error) {
@@ -80,9 +93,12 @@ function TechnicianBookingDetailContent({ id }: { id: string }) {
 		if (!booking) return;
 		setUpdating(true);
 		try {
-			const supabase = getSupabaseBrowserClient();
-			await supabase.from("taas_bookings").update({ status: "accepted", accepted_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", id);
-			setBooking((prev) => (prev ? { ...prev, status: "accepted", accepted_at: new Date().toISOString() } : null));
+			const acceptedAt = new Date().toISOString();
+			await updateBookingAction(id, {
+				status: "accepted",
+				accepted_at: acceptedAt,
+			});
+			setBooking((prev) => (prev ? { ...prev, status: "accepted", accepted_at: acceptedAt } : null));
 			queryClient.invalidateQueries({ queryKey: ["technician-bookings"] });
 		} catch (error) {
 			console.error("Error accepting booking:", error);
@@ -96,8 +112,7 @@ function TechnicianBookingDetailContent({ id }: { id: string }) {
 		if (!booking) return;
 		setUpdating(true);
 		try {
-			const supabase = getSupabaseBrowserClient();
-			await supabase.from("taas_bookings").update({ status: "rejected", updated_at: new Date().toISOString() }).eq("id", id);
+			await updateBookingAction(id, { status: "rejected" });
 			setBooking((prev) => (prev ? { ...prev, status: "rejected" } : null));
 			queryClient.invalidateQueries({ queryKey: ["technician-bookings"] });
 		} catch (error) {
@@ -112,13 +127,11 @@ function TechnicianBookingDetailContent({ id }: { id: string }) {
 		if (!booking) return;
 		setUpdating(true);
 		try {
-			const supabase = getSupabaseBrowserClient();
-			const updates: Record<string, unknown> = {
+			const updates: Partial<Booking> = {
 				completed_by_technician: true,
-				updated_at: new Date().toISOString(),
 			};
 			if (booking.completed_by_client) updates.status = "completed";
-			await supabase.from("taas_bookings").update(updates).eq("id", id);
+			await updateBookingAction(id, updates);
 			queryClient.invalidateQueries({ queryKey: ["technician-bookings"] });
 		} catch (error) {
 			console.error("Error marking booking as completed:", error);
@@ -212,7 +225,7 @@ function TechnicianBookingDetailContent({ id }: { id: string }) {
 							<div className="mb-2 text-sm text-muted-foreground">
 								<span className="font-medium">Negotiated Price</span>
 							</div>
-							<p className="text-lg font-semibold">${booking.negotiated_price.toFixed(2)}</p>
+							<p className="text-lg font-semibold">${Number(booking.negotiated_price).toFixed(2)}</p>
 						</div>
 					)}
 					{booking.status === "requested" && (

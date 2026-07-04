@@ -1,5 +1,4 @@
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import type { Booking } from "@/lib/types/database";
+import { getTechnicianBookingsAction } from "@/actions/client-db";
 import { useQuery } from "@tanstack/react-query";
 
 export function useTechnicianBookings(userId: string | undefined) {
@@ -7,32 +6,7 @@ export function useTechnicianBookings(userId: string | undefined) {
 		queryKey: ["technician-bookings", userId],
 		queryFn: async () => {
 			if (!userId) return [];
-
-			const supabase = getSupabaseBrowserClient();
-
-			// Find the technician document for this user
-			const { data: technician } = await supabase.from("taas_technicians").select("id").eq("user_id", userId).single();
-
-			if (!technician) return [];
-
-			// Query bookings for this technician, joining users for client info
-			const { data: bookings, error } = await supabase.from("taas_bookings").select("*, taas_users(display_name, email)").eq("technician_id", technician.id).order("created_at", { ascending: false });
-
-			if (error) {
-				console.error("Error fetching technician bookings:", error);
-				throw error;
-			}
-
-			type BookingWithDetails = Booking & {
-				client_name?: string;
-				client_email?: string;
-			};
-
-			return (bookings || []).map((b: any) => ({
-				...b,
-				client_name: b.taas_users?.display_name,
-				client_email: b.taas_users?.email,
-			})) as BookingWithDetails[];
+			return getTechnicianBookingsAction(userId);
 		},
 		enabled: !!userId,
 		refetchOnWindowFocus: false,

@@ -1,6 +1,6 @@
 "use client";
 
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { syncUserAction } from "@/actions/client-db";
 import type { User as DbUser, UserRole } from "@/lib/types/database";
 import { useClerk, useUser } from "@clerk/nextjs";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
@@ -36,47 +36,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 			setSyncing(true);
 			try {
-				const supabase = getSupabaseBrowserClient();
 				const userId = clerkUser.id;
 				const email = clerkUser.primaryEmailAddress?.emailAddress || "";
 				const displayName = clerkUser.fullName || clerkUser.firstName || "";
 
-				// Check if user exists
-				const { data: existingUser } = await supabase.from("taas_users").select("*").eq("id", userId).single();
+				const result = await syncUserAction({
+					id: userId,
+					email,
+					displayName,
+					role,
+				});
 
-				if (!existingUser) {
-					// Create new user
-					const activeRole = role || "client";
-					await supabase.from("taas_users").insert({
-						id: userId,
-						email,
-						display_name: displayName,
-						role: activeRole,
-						roles: [activeRole],
-					});
-
-					const { data: newUser } = await supabase.from("taas_users").select("*").eq("id", userId).single();
-					setDbUser(newUser);
-				} else {
-					// Update existing user if role is specified
-					if (role) {
-						const existingRoles: string[] = existingUser.roles || (existingUser.role ? [existingUser.role] : []);
-						const updatedRoles = existingRoles.includes(role) ? existingRoles : [...existingRoles, role];
-
-						await supabase
-							.from("taas_users")
-							.update({
-								role,
-								roles: updatedRoles,
-								display_name: displayName,
-							})
-							.eq("id", userId);
-
-						setDbUser({ ...existingUser, role, roles: updatedRoles as UserRole[] });
-					} else {
-						setDbUser(existingUser);
-					}
-				}
+				setDbUser(result.user);
 			} catch (error) {
 				console.error("Error syncing user:", error);
 			} finally {

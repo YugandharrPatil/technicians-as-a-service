@@ -1,141 +1,132 @@
 import { sql } from "drizzle-orm";
-import { boolean, foreignKey, index, integer, jsonb, numeric, pgEnum, pgSequence, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { sqliteTable, text, integer, numeric, index, foreignKey } from "drizzle-orm/sqlite-core";
 
-export const propertyStatus = pgEnum("property_status", ["available", "sold", "pending"]);
-export const propertyType = pgEnum("property_type", ["house", "apartment", "condo", "townhouse", "land", "commercial"]);
-export const senderRole = pgEnum("sender_role", ["user", "admin"]);
-export const visitStatus = pgEnum("visit_status", ["pending", "confirmed", "cancelled"]);
-
-export const petMessagesIdSeq = pgSequence("pet_messages_id_seq", { startWith: "1", increment: "1", minValue: "1", maxValue: "2147483647", cache: "1", cycle: false });
-export const agencyProjectsIdSeq = pgSequence("agency_projects_id_seq", { startWith: "1", increment: "1", minValue: "1", maxValue: "9223372036854775807", cache: "1", cycle: false });
-export const agencyMessagesIdSeq = pgSequence("agency_messages_id_seq", { startWith: "1", increment: "1", minValue: "1", maxValue: "9223372036854775807", cache: "1", cycle: false });
-
-export const taasUsers = pgTable("taas_users", {
-	id: text().primaryKey().notNull(),
-	email: text().notNull(),
-	displayName: text("display_name").default(""),
-	role: text().default("client"),
-	roles: text().array().default(["RAY['client'::tex"]),
-	ratingAvg: numeric("rating_avg", { precision: 3, scale: 1 }).default("0"),
-	ratingCount: integer("rating_count").default(0),
-	createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).defaultNow(),
+export const taasUsers = sqliteTable("taas_users", {
+	id: text("id").primaryKey().notNull(),
+	email: text("email").notNull(),
+	display_name: text("display_name").default(""),
+	role: text("role").default("client"),
+	roles: text("roles", { mode: "json" }).$type<string[]>().default(sql`'["client"]'`),
+	rating_avg: numeric("rating_avg").default("0"),
+	rating_count: integer("rating_count").default(0),
+	created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
 });
 
-export const taasBookings = pgTable(
-	"taas_bookings",
+export const taasTechnicians = sqliteTable(
+	"taas_technicians",
 	{
-		id: uuid().defaultRandom().primaryKey().notNull(),
-		clientId: text("client_id").notNull(),
-		technicianId: uuid("technician_id").notNull(),
-		serviceType: text("service_type").notNull(),
-		problemDescription: text("problem_description").notNull(),
-		address: text().notNull(),
-		preferredDateTime: timestamp("preferred_date_time", { withTimezone: true, mode: "string" }).notNull(),
-		status: text().default("requested"),
-		negotiatedPrice: numeric("negotiated_price", { precision: 10, scale: 2 }),
-		negotiatedDateTime: timestamp("negotiated_date_time", { withTimezone: true, mode: "string" }),
-		acceptedAt: timestamp("accepted_at", { withTimezone: true, mode: "string" }),
-		completedByClient: boolean("completed_by_client").default(false),
-		completedByTechnician: boolean("completed_by_technician").default(false),
-		leadContacted: boolean("lead_contacted").default(false),
-		leadClosed: boolean("lead_closed").default(false),
-		createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).defaultNow(),
-		updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).defaultNow(),
+		id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()).notNull(),
+		user_id: text("user_id"),
+		name: text("name").notNull(),
+		job_types: text("job_types", { mode: "json" }).$type<string[]>().notNull(),
+		bio: text("bio").notNull(),
+		tags: text("tags", { mode: "json" }).$type<string[]>().default(sql`'[]'`),
+		cities: text("cities", { mode: "json" }).$type<string[]>().default(sql`'[]'`),
+		rating_avg: numeric("rating_avg").default("0"),
+		rating_count: integer("rating_count").default(0),
+		is_visible: integer("is_visible", { mode: "boolean" }).default(true),
+		photo_url: text("photo_url"),
+		embedding: text("embedding", { mode: "json" }),
+		created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+		updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
 	},
 	(table) => [
-		index("idx_bookings_client_id").using("btree", table.clientId.asc().nullsLast().op("text_ops")),
-		index("idx_bookings_status").using("btree", table.status.asc().nullsLast().op("text_ops")),
-		index("idx_bookings_technician_id").using("btree", table.technicianId.asc().nullsLast().op("uuid_ops")),
+		index("idx_technicians_is_visible").on(table.is_visible),
+		index("idx_technicians_user_id").on(table.user_id),
 		foreignKey({
-			columns: [table.clientId],
+			columns: [table.user_id],
+			foreignColumns: [taasUsers.id],
+			name: "taas_technicians_user_id_taas_users_id_fk",
+		}),
+	]
+);
+
+export const taasBookings = sqliteTable(
+	"taas_bookings",
+	{
+		id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()).notNull(),
+		client_id: text("client_id").notNull(),
+		technician_id: text("technician_id").notNull(),
+		service_type: text("service_type").notNull(),
+		problem_description: text("problem_description").notNull(),
+		address: text("address").notNull(),
+		preferred_date_time: text("preferred_date_time").notNull(),
+		status: text("status").default("requested"),
+		negotiated_price: numeric("negotiated_price"),
+		negotiated_date_time: text("negotiated_date_time"),
+		accepted_at: text("accepted_at"),
+		completed_by_client: integer("completed_by_client", { mode: "boolean" }).default(false),
+		completed_by_technician: integer("completed_by_technician", { mode: "boolean" }).default(false),
+		lead_contacted: integer("lead_contacted", { mode: "boolean" }).default(false),
+		lead_closed: integer("lead_closed", { mode: "boolean" }).default(false),
+		created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
+		updated_at: text("updated_at").default(sql`(CURRENT_TIMESTAMP)`),
+	},
+	(table) => [
+		index("idx_bookings_client_id").on(table.client_id),
+		index("idx_bookings_status").on(table.status),
+		index("idx_bookings_technician_id").on(table.technician_id),
+		foreignKey({
+			columns: [table.client_id],
 			foreignColumns: [taasUsers.id],
 			name: "taas_bookings_client_id_taas_users_id_fk",
 		}),
 		foreignKey({
-			columns: [table.technicianId],
+			columns: [table.technician_id],
 			foreignColumns: [taasTechnicians.id],
 			name: "taas_bookings_technician_id_taas_technicians_id_fk",
 		}),
-	],
+	]
 );
 
-export const taasTechnicians = pgTable(
-	"taas_technicians",
-	{
-		id: uuid().defaultRandom().primaryKey().notNull(),
-		userId: text("user_id"),
-		name: text().notNull(),
-		jobTypes: text("job_types").array().notNull(),
-		bio: text().notNull(),
-		tags: text().array().default([""]),
-		cities: text().array().default([""]),
-		ratingAvg: numeric("rating_avg", { precision: 3, scale: 1 }).default("0"),
-		ratingCount: integer("rating_count").default(0),
-		isVisible: boolean("is_visible").default(true),
-		photoUrl: text("photo_url"),
-		embedding: jsonb(),
-		createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).defaultNow(),
-		updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).defaultNow(),
-	},
-	(table) => [
-		index("idx_technicians_is_visible").using("btree", table.isVisible.asc().nullsLast().op("bool_ops")),
-		index("idx_technicians_user_id").using("btree", table.userId.asc().nullsLast().op("text_ops")),
-		foreignKey({
-			columns: [table.userId],
-			foreignColumns: [taasUsers.id],
-			name: "taas_technicians_user_id_taas_users_id_fk",
-		}),
-	],
-);
-
-export const taasChats = pgTable(
+export const taasChats = sqliteTable(
 	"taas_chats",
 	{
-		id: uuid().defaultRandom().primaryKey().notNull(),
-		bookingId: uuid("booking_id").notNull(),
-		senderId: text("sender_id").notNull(),
-		senderType: text("sender_type").notNull(),
-		message: text().notNull(),
-		offerPrice: numeric("offer_price", { precision: 10, scale: 2 }),
-		offerDateTime: timestamp("offer_date_time", { withTimezone: true, mode: "string" }),
-		createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).defaultNow(),
+		id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()).notNull(),
+		booking_id: text("booking_id").notNull(),
+		sender_id: text("sender_id").notNull(),
+		sender_type: text("sender_type").notNull(),
+		message: text("message").notNull(),
+		offer_price: numeric("offer_price"),
+		offer_date_time: text("offer_date_time"),
+		created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
 	},
 	(table) => [
-		index("idx_chat_messages_booking_id").using("btree", table.bookingId.asc().nullsLast().op("uuid_ops")),
+		index("idx_chat_messages_booking_id").on(table.booking_id),
 		foreignKey({
-			columns: [table.bookingId],
+			columns: [table.booking_id],
 			foreignColumns: [taasBookings.id],
 			name: "taas_chats_booking_id_taas_bookings_id_fk",
 		}),
-	],
+	]
 );
 
-export const taasReviews = pgTable(
+export const taasReviews = sqliteTable(
 	"taas_reviews",
 	{
-		id: uuid().defaultRandom().primaryKey().notNull(),
-		bookingId: uuid("booking_id").notNull(),
-		clientId: text("client_id").notNull(),
-		technicianId: uuid("technician_id").notNull(),
-		reviewerId: text("reviewer_id").notNull(),
-		revieweeId: text("reviewee_id").notNull(),
-		stars: integer().notNull(),
-		text: text().default(""),
-		createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).defaultNow(),
+		id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()).notNull(),
+		booking_id: text("booking_id").notNull(),
+		client_id: text("client_id").notNull(),
+		technician_id: text("technician_id").notNull(),
+		reviewer_id: text("reviewer_id").notNull(),
+		reviewee_id: text("reviewee_id").notNull(),
+		stars: integer("stars").notNull(),
+		text: text("text").default(""),
+		created_at: text("created_at").default(sql`(CURRENT_TIMESTAMP)`),
 	},
 	(table) => [
-		index("idx_reviews_booking_id").using("btree", table.bookingId.asc().nullsLast().op("uuid_ops")),
-		index("idx_reviews_reviewee_id").using("btree", table.revieweeId.asc().nullsLast().op("text_ops")),
-		index("idx_reviews_reviewer_id").using("btree", table.reviewerId.asc().nullsLast().op("text_ops")),
+		index("idx_reviews_booking_id").on(table.booking_id),
+		index("idx_reviews_reviewee_id").on(table.reviewee_id),
+		index("idx_reviews_reviewer_id").on(table.reviewer_id),
 		foreignKey({
-			columns: [table.bookingId],
+			columns: [table.booking_id],
 			foreignColumns: [taasBookings.id],
 			name: "taas_reviews_booking_id_taas_bookings_id_fk",
 		}),
 		foreignKey({
-			columns: [table.technicianId],
+			columns: [table.technician_id],
 			foreignColumns: [taasTechnicians.id],
 			name: "taas_reviews_technician_id_taas_technicians_id_fk",
 		}),
-	],
+	]
 );

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getBookingAction, getUserAction } from "@/actions/client-db";
 import type { Booking, Technician, User } from "@/lib/types/database";
 import { Calendar, MapPin, User as UserIcon, Wrench } from "lucide-react";
 import Link from "next/link";
@@ -34,13 +34,11 @@ function AdminBookingDetailContent({ id }: { id: string }) {
 
 	async function loadBooking() {
 		try {
-			const supabase = getSupabaseBrowserClient();
-			const { data: bookingData } = await supabase.from("taas_bookings").select("*").eq("id", id).single();
-			if (bookingData) {
-				setBooking(bookingData as Booking & { id: string });
-				const { data: techData } = await supabase.from("taas_technicians").select("*").eq("id", bookingData.technician_id).single();
-				if (techData) setTechnician(techData as Technician & { id: string });
-				const { data: userData } = await supabase.from("taas_users").select("*").eq("id", bookingData.client_id).single();
+			const res = await getBookingAction(id);
+			if (res && res.booking) {
+				setBooking(res.booking as Booking & { id: string });
+				if (res.technician) setTechnician(res.technician as Technician & { id: string });
+				const userData = await getUserAction(res.booking.client_id);
 				if (userData) setClient(userData as User & { id: string });
 			}
 		} catch (error) {

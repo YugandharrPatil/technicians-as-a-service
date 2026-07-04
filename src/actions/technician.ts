@@ -1,7 +1,9 @@
 "use server";
 
 import { requireTechnician } from "@/lib/auth/technician";
-import { getSupabaseServiceClient } from "@/lib/supabase/server";
+import { db } from "@/db";
+import { taasUsers, taasTechnicians } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 const technicianSchema = z.object({
@@ -24,37 +26,32 @@ export async function createTechnicianProfile(input: z.infer<typeof technicianSc
 
 	try {
 		const uid = decodedToken.uid;
-		const supabase = getSupabaseServiceClient();
 
 		// Check if user is a technician
-		const { data: userData } = await supabase.from("taas_users").select("*").eq("id", uid).single();
+		const [userData] = await db.select().from(taasUsers).where(eq(taasUsers.id, uid)).limit(1);
 		if (!userData) return { error: "User not found" };
 		if (userData.role !== "technician") return { error: "User is not a technician" };
 
 		// Check if technician profile already exists
-		const { data: existingTech } = await supabase.from("taas_technicians").select("id").eq("user_id", uid).single();
+		const [existingTech] = await db.select({ id: taasTechnicians.id }).from(taasTechnicians).where(eq(taasTechnicians.user_id, uid)).limit(1);
 		if (existingTech) return { error: "Technician profile already exists. Use update instead." };
 
 		const validatedData = technicianSchema.parse(input);
+		const newId = crypto.randomUUID();
 
-		const { data: newTech, error } = await supabase
-			.from("taas_technicians")
-			.insert({
-				user_id: uid,
-				name: validatedData.name,
-				job_types: validatedData.jobTypes,
-				bio: validatedData.bio,
-				tags: validatedData.tags,
-				cities: validatedData.cities,
-				is_visible: validatedData.isVisible,
-				photo_url: validatedData.photoUrl,
-			})
-			.select("id")
-			.single();
+		await db.insert(taasTechnicians).values({
+			id: newId,
+			user_id: uid,
+			name: validatedData.name,
+			job_types: validatedData.jobTypes,
+			bio: validatedData.bio,
+			tags: validatedData.tags,
+			cities: validatedData.cities,
+			is_visible: validatedData.isVisible,
+			photo_url: validatedData.photoUrl || null,
+		});
 
-		if (error || !newTech) return { error: "Failed to create profile" };
-
-		return { id: newTech.id, success: true, message: "Technician profile created successfully" };
+		return { id: newId, success: true, message: "Technician profile created successfully" };
 	} catch (error) {
 		console.error("Error creating technician profile:", error);
 		if (error instanceof z.ZodError) return { error: "Validation error", issues: error.issues };
@@ -72,32 +69,28 @@ export async function updateTechnicianProfile(input: z.infer<typeof technicianSc
 
 	try {
 		const uid = decodedToken.uid;
-		const supabase = getSupabaseServiceClient();
 
-		const { data: userData } = await supabase.from("taas_users").select("*").eq("id", uid).single();
+		const [userData] = await db.select().from(taasUsers).where(eq(taasUsers.id, uid)).limit(1);
 		if (!userData) return { error: "User not found" };
 		if (userData.role !== "technician") return { error: "User is not a technician" };
 
-		const { data: existingTech } = await supabase.from("taas_technicians").select("id").eq("user_id", uid).single();
+		const [existingTech] = await db.select({ id: taasTechnicians.id }).from(taasTechnicians).where(eq(taasTechnicians.user_id, uid)).limit(1);
 		if (!existingTech) return { error: "Technician profile not found. Create one first." };
 
 		const validatedData = technicianSchema.parse(input);
 
-		const { error } = await supabase
-			.from("taas_technicians")
-			.update({
+		await db.update(taasTechnicians)
+			.set({
 				name: validatedData.name,
 				job_types: validatedData.jobTypes,
 				bio: validatedData.bio,
 				tags: validatedData.tags,
 				cities: validatedData.cities,
 				is_visible: validatedData.isVisible,
-				photo_url: validatedData.photoUrl,
+				photo_url: validatedData.photoUrl || null,
 				updated_at: new Date().toISOString(),
 			})
-			.eq("id", existingTech.id);
-
-		if (error) return { error: "Failed to update profile" };
+			.where(eq(taasTechnicians.id, existingTech.id));
 
 		return { id: existingTech.id, success: true, message: "Technician profile updated successfully" };
 	} catch (error) {

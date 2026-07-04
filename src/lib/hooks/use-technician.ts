@@ -1,20 +1,14 @@
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import type { Technician } from "@/lib/types/database";
+import { getTechnicianAction } from "@/actions/client-db";
 import { useQuery } from "@tanstack/react-query";
 
 export function useTechnician(id: string) {
 	return useQuery({
 		queryKey: ["technician", id],
 		queryFn: async () => {
-			const supabase = getSupabaseBrowserClient();
-
-			const { data, error } = await supabase.from("taas_technicians").select("*").eq("id", id).single();
-
-			if (error || !data) {
-				throw new Error("Technician not found");
-			}
-
-			return data as Technician;
+			if (!id) throw new Error("Technician ID is required");
+			const tech = await getTechnicianAction(id);
+			if (!tech) throw new Error("Technician not found");
+			return tech;
 		},
 		enabled: !!id,
 	});

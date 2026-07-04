@@ -10,7 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Textarea } from "@/components/ui/textarea";
 import { TimePicker } from "@/components/ui/time-picker";
 import { useAuth } from "@/lib/auth/context";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getTechnicianAction, createBookingAction } from "@/actions/client-db";
 import type { Technician } from "@/lib/types/database";
 import { cn } from "@/lib/utils";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -64,8 +64,7 @@ function CreateBookingContent() {
 	async function loadTechnician() {
 		if (!technicianId) return;
 		try {
-			const supabase = getSupabaseBrowserClient();
-			const { data } = await supabase.from("taas_technicians").select("*").eq("id", technicianId).single();
+			const data = await getTechnicianAction(technicianId);
 
 			if (data) {
 				const tech = data as Technician;
@@ -86,23 +85,18 @@ function CreateBookingContent() {
 
 		setSubmitting(true);
 		try {
-			const supabase = getSupabaseBrowserClient();
 			const dateStr = format(data.preferredDate, "yyyy-MM-dd");
 			const preferredDateTime = new Date(`${dateStr}T${data.preferredTime}`);
 
-			const { error } = await supabase.from("taas_bookings").insert({
+			await createBookingAction({
 				client_id: user.id,
 				technician_id: technicianId,
 				service_type: data.serviceType,
 				problem_description: data.problemDescription,
 				address: data.address,
 				preferred_date_time: preferredDateTime.toISOString(),
-				status: "requested",
-				lead_contacted: false,
-				lead_closed: false,
 			});
 
-			if (error) throw error;
 			router.push("/account/bookings");
 		} catch (error) {
 			console.error("Error creating booking:", error);

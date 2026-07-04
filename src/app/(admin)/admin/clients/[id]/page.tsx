@@ -3,7 +3,7 @@
 import { AdminGate } from "@/components/auth/admin-gate";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getUserAction, getBookingsAction } from "@/actions/client-db";
 import type { Booking, Technician, User } from "@/lib/types/database";
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
@@ -30,17 +30,11 @@ function AdminClientDetailContent({ id }: { id: string }) {
 
 	async function loadClient() {
 		try {
-			const supabase = getSupabaseBrowserClient();
-			const { data: userData } = await supabase.from("taas_users").select("*").eq("id", id).single();
+			const userData = await getUserAction(id);
 			if (userData) {
 				setClient(userData as User & { id: string });
-				const { data: bookingsData } = await supabase.from("taas_bookings").select("*, taas_technicians(name)").eq("client_id", id);
-
-				const mapped: BookingWithTechnician[] = (bookingsData || []).map((b: any) => ({
-					...b,
-					technician_name: b.taas_technicians?.name,
-				}));
-				setBookings(mapped);
+				const bookingsData = await getBookingsAction(id);
+				setBookings(bookingsData as BookingWithTechnician[]);
 			}
 		} catch (error) {
 			console.error("Error loading client:", error);

@@ -3,7 +3,7 @@
 import { AdminGate } from "@/components/auth/admin-gate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getAdminClientsAction } from "@/actions/client-db";
 import type { User } from "@/lib/types/database";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -26,9 +26,7 @@ function AdminClientsContent() {
 
 	async function loadClients() {
 		try {
-			const supabase = getSupabaseBrowserClient();
-			const { data, error } = await supabase.from("taas_users").select("*");
-			if (error) throw error;
+			const data = await getAdminClientsAction();
 			setClients((data || []) as (User & { id: string })[]);
 		} catch (error) {
 			console.error("Error loading clients:", error);
