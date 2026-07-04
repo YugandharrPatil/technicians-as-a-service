@@ -10,11 +10,13 @@ const isPublicRoute = createRouteMatcher([
   '/technician/login(.*)',
 ]);
 
-export default clerkMiddleware(async (auth, request) => {
+const handler = clerkMiddleware(async (auth, request) => {
   if (!isPublicRoute(request)) {
     await auth.protect();
   }
 });
+
+export const proxy = handler;
 
 export const config = {
   matcher: [

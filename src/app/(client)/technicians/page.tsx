@@ -167,7 +167,7 @@ export default function TechniciansPage() {
 									{tech.rating_avg ? (
 										<div className="flex items-center gap-1.5">
 											<Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-											<span className="text-sm font-semibold">{tech.rating_avg.toFixed(1)}</span>
+											<span className="text-sm font-semibold">{Number(tech.rating_avg).toFixed(1)}</span>
 											{tech.rating_count && <span className="text-xs text-muted-foreground">({tech.rating_count})</span>}
 										</div>
 									) : (
